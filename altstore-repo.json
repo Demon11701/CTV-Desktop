@@ -19,16 +19,19 @@
       "iconURL": "https://raw.githubusercontent.com/Demon11701/CTV-Desktop/main/build/icons/icon.png",
       "tintColor": "#a24df0",
       "category": "entertainment",
-      "version": "1.5.0",
-      "versionDate": "2026-11-02T11:52:00Z",
       "versionDescription": "Versión inicial 1.5.0 para iOS con comprobador de actualizaciones y soporte SideStore.",
-      "downloadURL": "https://github.com/Demon11701/CTV-Desktop/releases/download/v1.5.0/CTV-1.5.0.ipa",
-      "size": 2500000,
+      "size": null,
       "appPermissions": {
         "entitlements": [],
         "privacy": {}
       },
       "versions": [
+        {
+          "buildVersion": "undefined",
+          "localizedDescription": "CTV vundefined para iOS (SideStore / AltStore).",
+          "size": null,
+          "minOSVersion": "15.0"
+        },
         {
           "version": "1.5.0",
           "buildVersion": "5",
