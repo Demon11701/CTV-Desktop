@@ -1,0 +1,6 @@
+node_modules/
+dist/
+_apk_extracted/
+CTV.apk
+*.log
+.DS_Store

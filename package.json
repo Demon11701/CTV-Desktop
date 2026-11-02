@@ -1,0 +1,45 @@
+{
+  "name": "ctv-desktop",
+  "version": "1.5.0",
+  "description": "CTV Desktop Streaming Application",
+  "main": "main.js",
+  "author": "CTV",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --linux --win --x64",
+    "build:linux": "electron-builder --linux --x64",
+    "build:win": "electron-builder --win --x64"
+  },
+  "build": {
+    "appId": "com.pelisjuanita.app",
+    "productName": "CTV",
+    "files": [
+      "main.js",
+      "src/**/*",
+      "build/icons/**/*"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "dir"
+      ],
+      "icon": "build/icons/icon.png",
+      "category": "AudioVideo"
+    },
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "build/icons/icon.png"
+    }
+  },
+  "devDependencies": {
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.0"
+  }
+}

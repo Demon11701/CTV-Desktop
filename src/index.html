@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#000000" />
+  <title>CTV</title>
+  <link rel="icon" type="image/png" href="./assets/logo-C0-uO6lu.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <script src="./desktop-bridge.js"></script>
+  <script type="module" crossorigin src="./assets/index-BhZlhT-V.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-COuAP1-u.css">
+</head>
+<body>
+  <!-- Aviso si ponen el móvil en vertical -->
+  <div id="rotate-warning" class="rotate-warning hidden">
+    <div class="rotate-box">
+      <div class="rotate-icon">↻</div>
+      <h2>Gira tu dispositivo</h2>
+      <p>CTV se ve únicamente en modo horizontal.</p>
+    </div>
+  </div>
+
+  <div id="app" class="app">
+    <!-- ============ MENU LATERAL IZQUIERDO ============ -->
+    <aside id="sidebar" class="sidebar">
+      <div class="brand">
+        <img src="./assets/logo-C0-uO6lu.png" alt="CTV" class="brand-logo" />
+        <div class="brand-titles">
+          <h1 class="brand-title">C<span>TV</span></h1>
+          <span class="brand-sub" id="brand-sub"></span>
+        </div>
+      </div>
+
+      <nav class="menu" aria-label="Menú principal">
+        <button class="menu-item focusable active" data-section="home" tabindex="0">
+          <span class="menu-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg>
+          </span>
+          <span class="menu-label">Inicio</span>
+        </button>
+
+        <button class="menu-item focusable" data-section="live" tabindex="0">
+          <span class="menu-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 9.5 12 4l10 5.5"/><rect x="2" y="9" width="20" height="11" rx="2"/><circle cx="12" cy="14.5" r="2.5" fill="currentColor"/><path d="M10.5 14.5 12 13l1.5 1.5V16h-3z" fill="#000"/></svg>
+          </span>
+          <span class="menu-label">TV en vivo</span>
+        </button>
+
+        <button class="menu-item focusable" data-section="agenda" tabindex="0">
+          <span class="menu-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="M12 14v2.5l1.7 1.2" stroke-linecap="round"/></svg>
+          </span>
+          <span class="menu-label">Agenda deportiva</span>
+        </button>
+
+        <button class="menu-item focusable" data-section="movies" tabindex="0">
+          <span class="menu-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 4v16M17 4v16M2 9h5M2 15h5M17 9h5M17 15h5"/></svg>
+          </span>
+          <span class="menu-label">Películas</span>
+        </button>
+
+        <button class="menu-item focusable" data-section="series" tabindex="0">
+          <span class="menu-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M10 9.5v5l4.5-2.5z" fill="currentColor"/><path d="M8 21h8"/></svg>
+          </span>
+          <span class="menu-label">Series</span>
+        </button>
+
+        <button class="menu-item focusable" data-section="favorites" tabindex="0">
+          <span class="menu-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.5l2.9 6.2 6.6.7-5 4.5 1.4 6.6L12 17l-5.9 3.5 1.4-6.6-5-4.5 6.6-.7z"/></svg>
+          </span>
+          <span class="menu-label">Favoritos</span>
+        </button>
+      </nav>
+    </aside>
+
+    <!-- ============ PANEL PRINCIPAL DERECHA ============ -->
+    <main id="main" class="main">
+      <header class="topbar">
+        <h2 id="section-title" class="section-title">TV en vivo</h2>
+        <div class="search">
+          <span class="search-icon">⌕</span>
+          <input id="search-input" class="focusable" type="text" placeholder="Buscar..." autocomplete="off" tabindex="0" />
+          <button id="search-clear" class="search-clear hidden" tabindex="0">✕</button>
+        </div>
+        <button id="update-bell" class="update-bell hidden focusable" tabindex="0" title="Hay actualización">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/></svg>
+        </button>
+      </header>
+
+      <div id="filter-bar" class="filter-bar hidden"></div>
+
+      <section id="content" class="content" aria-live="polite"></section>
+
+      <div id="loading" class="loading hidden">Cargando…</div>
+    </main>
+  </div>
+
+  <!-- Detalle película a pantalla completa -->
+  <div id="detail-modal" class="detail-full hidden">
+    <div class="detail-topbar">
+      <button id="detail-topback" class="btn focusable" tabindex="0">◀ Volver</button>
+      <span id="detail-toptitle">Película</span>
+    </div>
+    <div id="detail-body" class="detail-scroll"></div>
+  </div>
+
+  <!-- Modal de actualización (actualizador in-app) -->
+  <div id="update-modal" class="modal hidden">
+    <div class="dialog update-dialog">
+      <img src="./assets/logo-C0-uO6lu.png" alt="CTV" class="update-logo" />
+      <div class="update-tag">NUEVA VERSIÓN DISPONIBLE</div>
+      <h3 id="update-version-title">CTV</h3>
+      <p class="dialog-sub" id="update-changelog">Hay una nueva versión disponible.</p>
+      <div id="update-progress-container" class="hidden">
+        <div class="update-progress-row">
+          <span id="update-progress-label">Descargando…</span>
+          <span id="update-progress-percent">0%</span>
+        </div>
+        <div class="update-progress-track">
+          <div id="update-progress-bar"></div>
+        </div>
+      </div>
+      <div class="update-actions" id="update-actions">
+        <button id="btn-update-install" class="btn btn-danger focusable" tabindex="0">⚡ Actualizar ahora</button>
+        <button id="btn-update-later" class="btn focusable" tabindex="0">Más tarde</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal servidores -->
+  <div id="server-modal" class="modal hidden">
+    <div class="dialog">
+      <div class="dialog-head">
+        <h3 id="server-title">Servidores</h3>
+        <button id="server-close" class="btn focusable" tabindex="0">✕ Cerrar</button>
+      </div>
+      <div id="episode-wrap" class="hidden">
+        <div class="dialog-label">Temporadas:</div>
+        <div id="season-tabs" class="season-tabs"></div>
+        <div class="dialog-label">Capítulos:</div>
+        <div id="episode-list" class="episode-list"></div>
+      </div>
+      <p class="dialog-sub" id="server-sub">Elige un servidor:</p>
+      <div id="server-list" class="server-list"></div>
+    </div>
+  </div>
+
+  <!-- Player -->
+  <div id="player-modal" class="player hidden">
+    <div class="player-bar" id="player-bar">
+      <button id="player-back" class="btn focusable" tabindex="0">◀ Volver</button>
+      <span id="player-title">Reproduciendo…</span>
+      <button id="player-fav" class="btn focusable" tabindex="0" title="Favorito">☆</button>
+    </div>
+    <iframe id="player-frame" class="player-frame hidden" allowfullscreen allow="autoplay; fullscreen; encrypted-media; picture-in-picture"></iframe>
+    <video id="player-video" class="player-frame hidden" controls playsinline preload="auto"></video>
+  </div>
+
+  <script src="./ctv-ui.js"></script>
+</body>
+</html>
