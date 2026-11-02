@@ -178,3 +178,200 @@
     }, true);
   } catch (e) {}
 })();
+
+/* CTV: Comprobador multiplataforma de actualizaciones desde GitHub Releases (Android/Smart TV, Windows, Linux e iOS SideStore) */
+(function () {
+  var GITHUB_LATEST_URL = 'https://api.github.com/repos/Demon11701/CTV-Desktop/releases/latest';
+  var ALTSTORE_REPO_URL = 'https://raw.githubusercontent.com/Demon11701/CTV-Desktop/main/altstore-repo.json';
+  var CURRENT_VERSION = window.CTV_APP_VERSION || '1.5.0';
+  var latestReleaseData = null;
+
+  function parseSemver(v) {
+    var clean = String(v || '').replace(/^[^0-9]*/, '').trim();
+    var parts = clean.split('.').map(function (n) { return parseInt(n, 10) || 0; });
+    while (parts.length < 3) parts.push(0);
+    return parts;
+  }
+
+  function isNewerVersion(remoteVer, localVer) {
+    var r = parseSemver(remoteVer);
+    var l = parseSemver(localVer);
+    for (var i = 0; i < 3; i++) {
+      if (r[i] > l[i]) return true;
+      if (r[i] < l[i]) return false;
+    }
+    return false;
+  }
+
+  function detectPlatform() {
+    var ua = navigator.userAgent || '';
+    var capPlatform = '';
+    try {
+      if (window.Capacitor && typeof window.Capacitor.getPlatform === 'function') {
+        capPlatform = window.Capacitor.getPlatform();
+      }
+    } catch (e) {}
+
+    if (
+      capPlatform === 'ios' ||
+      /iPhone|iPad|iPod/i.test(ua) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    ) {
+      return 'ios';
+    }
+    if (
+      capPlatform === 'android' ||
+      (window.AndroidBridge && typeof window.AndroidBridge.playChannelFull === 'function')
+    ) {
+      return 'android';
+    }
+    if (/Windows/i.test(ua) || /Win32|Win64/i.test(navigator.platform || '')) {
+      return 'windows';
+    }
+    return 'linux';
+  }
+
+  function findAssetUrl(assets, ext) {
+    if (!Array.isArray(assets)) return '';
+    for (var i = 0; i < assets.length; i++) {
+      var a = assets[i];
+      if (a && a.name && a.name.toLowerCase().endsWith(ext.toLowerCase()) && a.browser_download_url) {
+        return a.browser_download_url;
+      }
+    }
+    return '';
+  }
+
+  function showGitHubUpdateModal(release) {
+    var modal = document.getElementById('update-modal');
+    if (!modal || !release) return;
+
+    var tag = release.tag_name || release.name || '';
+    var platform = detectPlatform();
+    var assets = release.assets || [];
+
+    var titleEl = document.getElementById('update-version-title');
+    var changelogEl = document.getElementById('update-changelog');
+    var progressWrap = document.getElementById('update-progress-container');
+    var progressBar = document.getElementById('update-progress-bar');
+    var progressPct = document.getElementById('update-progress-percent');
+    var progressLbl = document.getElementById('update-progress-label');
+    var btnInstall = document.getElementById('btn-update-install');
+    var btnLater = document.getElementById('btn-update-later');
+
+    if (titleEl) titleEl.textContent = 'CTV ' + tag;
+    if (changelogEl) {
+      changelogEl.textContent =
+        release.body ||
+        (platform === 'ios'
+          ? 'Nueva versión disponible. Actualiza directamente desde SideStore sin usar PC.'
+          : 'Hay una nueva versión disponible en GitHub.');
+    }
+    if (progressWrap) progressWrap.classList.add('hidden');
+    if (progressBar) progressBar.style.width = '0%';
+    if (progressPct) progressPct.textContent = '0%';
+
+    if (btnInstall) {
+      btnInstall.disabled = false;
+      if (platform === 'ios') {
+        btnInstall.textContent = '⚡ Actualizar en SideStore';
+      } else if (platform === 'android') {
+        btnInstall.textContent = '⚡ Descargar APK (' + tag + ')';
+      } else if (platform === 'windows') {
+        btnInstall.textContent = '⚡ Descargar .EXE (' + tag + ')';
+      } else {
+        btnInstall.textContent = '⚡ Descargar .AppImage (' + tag + ')';
+      }
+
+      btnInstall.onclick = function () {
+        if (platform === 'ios') {
+          window.location.href = 'sidestore://source?url=' + encodeURIComponent(ALTSTORE_REPO_URL);
+          setTimeout(function () {
+            window.location.href = 'sidestore://';
+          }, 600);
+          return;
+        }
+
+        if (platform === 'android') {
+          var apkUrl = findAssetUrl(assets, '.apk') || release.html_url;
+          var bridge = window.AndroidBridge;
+          if (bridge && typeof bridge.canRequestInstalls === 'function' && !bridge.canRequestInstalls()) {
+            if (progressWrap) progressWrap.classList.remove('hidden');
+            if (progressLbl) progressLbl.textContent = 'Habilita "Instalar apps desconocidas" y vuelve a Actualizar.';
+            if (typeof bridge.openInstallSettings === 'function') bridge.openInstallSettings();
+            return;
+          }
+          if (apkUrl && bridge && typeof bridge.downloadAndInstallApk === 'function') {
+            if (progressWrap) progressWrap.classList.remove('hidden');
+            btnInstall.disabled = true;
+            bridge.downloadAndInstallApk(apkUrl);
+            return;
+          }
+          if (apkUrl) window.open(apkUrl, '_blank');
+          return;
+        }
+
+        if (platform === 'windows') {
+          var exeUrl = findAssetUrl(assets, '.exe') || release.html_url;
+          if (exeUrl) window.open(exeUrl, '_blank');
+          return;
+        }
+
+        var appImageUrl = findAssetUrl(assets, '.AppImage') || release.html_url;
+        if (appImageUrl) window.open(appImageUrl, '_blank');
+      };
+    }
+
+    if (btnLater) {
+      btnLater.style.display = '';
+      btnLater.onclick = function () {
+        try {
+          sessionStorage.setItem('ctv_gh_update_postponed_' + tag, '1');
+        } catch (e) {}
+        modal.classList.add('hidden');
+      };
+    }
+
+    modal.classList.remove('hidden');
+    if (btnInstall && btnInstall.focus) btnInstall.focus();
+  }
+
+  function checkGitHubRelease(forceModal) {
+    fetch(GITHUB_LATEST_URL, {
+      headers: { Accept: 'application/vnd.github+json' },
+      cache: 'no-store'
+    })
+      .then(function (r) {
+        return r.ok ? r.json() : null;
+      })
+      .then(function (release) {
+        if (!release || !release.tag_name) return;
+        var remoteTag = release.tag_name;
+        if (!forceModal && !isNewerVersion(remoteTag, CURRENT_VERSION)) {
+          return;
+        }
+        latestReleaseData = release;
+        var bell = document.getElementById('update-bell');
+        if (bell) {
+          bell.classList.remove('hidden');
+          bell.onclick = function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            showGitHubUpdateModal(latestReleaseData);
+          };
+        }
+        try {
+          if (!forceModal && sessionStorage.getItem('ctv_gh_update_postponed_' + remoteTag)) {
+            return;
+          }
+        } catch (e) {}
+        showGitHubUpdateModal(release);
+      })
+      .catch(function () {});
+  }
+
+  window.checkCTVGitHubUpdate = checkGitHubRelease;
+  setTimeout(function () {
+    checkGitHubRelease(false);
+  }, 3000);
+})();

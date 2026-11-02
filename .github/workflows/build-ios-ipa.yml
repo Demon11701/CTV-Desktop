@@ -1,0 +1,186 @@
+name: Build iOS IPA & Update AltStore/SideStore Repo
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'altstore-repo.json'
+      - 'README.md'
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Capacitor iOS dependencies
+        run: |
+          npm install --no-save @capacitor/core@6 @capacitor/cli@6 @capacitor/ios@6
+
+      - name: Generate Capacitor iOS project
+        run: |
+          rm -rf ios
+          npx cap add ios
+          npx cap sync ios
+
+      - name: Configure iOS App Icons & Info.plist
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          INFO_PLIST="ios/App/App/Info.plist"
+
+          # Configure Info.plist for streaming (ATS arbitrary loads) and version info
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName CTV" "$INFO_PLIST" || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$INFO_PLIST" || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 5" "$INFO_PLIST" || true
+          /usr/libexec/PlistBuddy -c "Delete :NSAppTransportSecurity" "$INFO_PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$INFO_PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" "$INFO_PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UIViewControllerBasedStatusBarAppearance bool false" "$INFO_PLIST" 2>/dev/null || true
+
+          # Replace all AppIcon and Splash PNGs with our CTV icon on a #05060a dark canvas (opaque for iOS AppIcon)
+          if command -v magick >/dev/null 2>&1; then
+            for img in ios/App/App/Assets.xcassets/AppIcon.appiconset/*.png; do
+              [ -f "$img" ] || continue
+              DIM=$(sips -g pixelWidth "$img" | awk '/pixelWidth/{print $2}')
+              INNER=$(( DIM * 78 / 100 ))
+              magick -size "${DIM}x${DIM}" xc:"#05060a" \
+                \( build/icons/icon.png -resize "${INNER}x${INNER}" \) \
+                -gravity center -composite "$img"
+            done
+            for splash in ios/App/App/Assets.xcassets/Splash.imageset/*.png; do
+              [ -f "$splash" ] || continue
+              magick -size 2732x2732 xc:"#05060a" \
+                \( build/icons/icon.png -resize 600x600 \) \
+                -gravity center -composite "$splash"
+            done
+          else
+            for img in ios/App/App/Assets.xcassets/AppIcon.appiconset/*.png; do
+              [ -f "$img" ] || continue
+              DIM=$(sips -g pixelWidth "$img" | awk '/pixelWidth/{print $2}')
+              sips -s format png -z "$DIM" "$DIM" build/icons/icon.png --out "$img"
+            done
+          fi
+
+      - name: Build Unsigned iOS App with Xcode
+        run: |
+          cd ios/App
+          if [ -f "Podfile" ] && [ ! -d "App.xcworkspace" ]; then
+            pod install
+          fi
+          if [ -d "App.xcworkspace" ]; then
+            xcodebuild -workspace App.xcworkspace \
+              -scheme App \
+              -configuration Release \
+              -sdk iphoneos \
+              -derivedDataPath build \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGNING_ALLOWED=NO \
+              AD_HOC_CODE_SIGNING_ALLOWED=YES \
+              clean build
+          else
+            xcodebuild -project App.xcodeproj \
+              -scheme App \
+              -configuration Release \
+              -sdk iphoneos \
+              -derivedDataPath build \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGNING_ALLOWED=NO \
+              AD_HOC_CODE_SIGNING_ALLOWED=YES \
+              clean build
+          fi
+
+      - name: Package Unsigned IPA
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          IPA_NAME="CTV-${VERSION}.ipa"
+          mkdir -p build_ipa/Payload
+          cp -R ios/App/build/Build/Products/Release-iphoneos/App.app build_ipa/Payload/App.app
+          cd build_ipa
+          zip -qry "../${IPA_NAME}" Payload
+          cd ..
+          ls -lh "${IPA_NAME}"
+
+      - name: Upload IPA to GitHub Release & Update altstore-repo.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v${VERSION}"
+          IPA_NAME="CTV-${VERSION}.ipa"
+          IPA_SIZE=$(stat -f%z "${IPA_NAME}")
+          NOW_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          REPO="${GITHUB_REPOSITORY}"
+          DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/${IPA_NAME}"
+
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" "${IPA_NAME}" \
+              --title "CTV Desktop & Mobile ${TAG}" \
+              --notes "Ejecutables de CTV ${TAG} para Linux (.AppImage), Windows (.exe), Android/Smart TV (.apk) e iOS (.ipa)."
+          else
+            gh release upload "$TAG" "${IPA_NAME}" --clobber
+          fi
+
+          node -e '
+            const fs = require("fs");
+            const repoPath = "altstore-repo.json";
+            const repo = JSON.parse(fs.readFileSync(repoPath, "utf8"));
+            const version = process.env.VERSION;
+            const size = Number(process.env.IPA_SIZE);
+            const date = process.env.NOW_ISO;
+            const downloadURL = process.env.DOWNLOAD_URL;
+
+            const app = repo.apps[0];
+            app.version = version;
+            app.versionDate = date;
+            app.downloadURL = downloadURL;
+            app.size = size;
+
+            const newEntry = {
+              version,
+              buildVersion: String(version),
+              date,
+              localizedDescription: "CTV v" + version + " para iOS (SideStore / AltStore).",
+              downloadURL,
+              size,
+              minOSVersion: "15.0"
+            };
+
+            app.versions = [
+              newEntry,
+              ...(app.versions || []).filter(v => v.version !== version)
+            ];
+
+            fs.writeFileSync(repoPath, JSON.stringify(repo, null, 2) + "\n");
+          ' VERSION="$VERSION" IPA_SIZE="$IPA_SIZE" NOW_ISO="$NOW_ISO" DOWNLOAD_URL="$DOWNLOAD_URL"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add altstore-repo.json
+          if ! git diff --staged --quiet; then
+            git commit -m "chore(ios): update altstore-repo.json for v${VERSION} [skip ci]"
+            git pull --rebase origin main || true
+            git push origin HEAD:main
+          fi
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CTV-iOS-IPA
+          path: '*.ipa'

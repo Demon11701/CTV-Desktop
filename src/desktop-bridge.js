@@ -1,9 +1,16 @@
 /**
- * Desktop Bridge & HTML5/HLS Player Polyfill for CTV Desktop (Electron)
- * Replaces Android-specific ExoPlayer / APK updater calls with local storage
- * and HTML5 <video> (HLS.js / Shaka Player) + <iframe> playback fallbacks.
+ * Desktop & iOS Bridge + HTML5/HLS Player Polyfill for CTV
+ * Preserves native window.AndroidBridge on Android/Smart TV while providing
+ * compatibility and storage persistence on Desktop (Linux/Windows) and iOS.
  */
 (function () {
+  window.CTV_APP_VERSION = '1.5.0';
+
+  // If running inside the native Android/Smart TV APK where MainActivity already injected AndroidBridge, keep it intact
+  if (window.AndroidBridge && typeof window.AndroidBridge.playChannelFull === 'function') {
+    return;
+  }
+
   const FAVS_KEY = 'pj2_favs_slugs';
   const WATCHED_KEY = 'pj2_vistos';
 
@@ -27,14 +34,13 @@
     return `${slug || ''}:${t || 0}:${e || 0}`;
   }
 
-  // Provide AndroidBridge compatibility object without overriding web HTML5/HLS.js player fallbacks
   window.AndroidBridge = {
     getAppVersionCode: function () {
-      // Matches current server versionCode (5) so API requests send app_version=5 and update modal doesn't force APK install
+      // Matches current server versionCode (5) so API requests send app_version=5
       return 5;
     },
     getAppVersionName: function () {
-      return '1.5';
+      return '1.5.0';
     },
     canRequestInstalls: function () {
       return false;

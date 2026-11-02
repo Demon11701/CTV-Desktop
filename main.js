@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session } = require('electron');
+const { app, BrowserWindow, session, shell } = require('electron');
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
@@ -363,8 +363,15 @@ async function createWindow() {
     }
   });
 
-  // Block all popup windows from embed servers
-  mainWindow.webContents.setWindowOpenHandler(() => {
+  // Block popup windows from embed servers, but allow GitHub release downloads in external browser
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (
+      url &&
+      (url.startsWith('https://github.com/Demon11701/CTV-Desktop/') ||
+        url.includes('githubusercontent.com'))
+    ) {
+      shell.openExternal(url).catch(() => {});
+    }
     return { action: 'deny' };
   });
 

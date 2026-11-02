@@ -1,0 +1,45 @@
+{
+  "name": "CTV Repo",
+  "identifier": "com.pelisjuanita.ctv.repo",
+  "subtitle": "Repositorio oficial de CTV para iOS (SideStore / AltStore)",
+  "description": "Repositorio oficial para instalar y actualizar CTV en iPhone y iPad mediante SideStore o AltStore.",
+  "iconURL": "https://raw.githubusercontent.com/Demon11701/CTV-Desktop/main/build/icons/icon.png",
+  "website": "https://github.com/Demon11701/CTV-Desktop",
+  "tintColor": "#a24df0",
+  "featuredApps": [
+    "com.pelisjuanita.app"
+  ],
+  "apps": [
+    {
+      "name": "CTV",
+      "bundleIdentifier": "com.pelisjuanita.app",
+      "developerName": "CTV",
+      "subtitle": "TV en vivo, Películas, Series y Agenda Deportiva",
+      "localizedDescription": "Aplicación nativa de CTV para iOS con soporte de TV en vivo, películas, series, agenda deportiva y bloqueador de anuncios.",
+      "iconURL": "https://raw.githubusercontent.com/Demon11701/CTV-Desktop/main/build/icons/icon.png",
+      "tintColor": "#a24df0",
+      "category": "entertainment",
+      "version": "1.5.0",
+      "versionDate": "2026-11-02T11:52:00Z",
+      "versionDescription": "Versión inicial 1.5.0 para iOS con comprobador de actualizaciones y soporte SideStore.",
+      "downloadURL": "https://github.com/Demon11701/CTV-Desktop/releases/download/v1.5.0/CTV-1.5.0.ipa",
+      "size": 2500000,
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {}
+      },
+      "versions": [
+        {
+          "version": "1.5.0",
+          "buildVersion": "5",
+          "date": "2026-11-02T11:52:00Z",
+          "localizedDescription": "Versión inicial 1.5.0 para iOS con comprobador de actualizaciones y soporte SideStore.",
+          "downloadURL": "https://github.com/Demon11701/CTV-Desktop/releases/download/v1.5.0/CTV-1.5.0.ipa",
+          "size": 2500000,
+          "minOSVersion": "15.0"
+        }
+      ]
+    }
+  ],
+  "news": []
+}
