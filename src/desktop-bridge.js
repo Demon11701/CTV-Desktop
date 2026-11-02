@@ -30,11 +30,11 @@
   // Provide AndroidBridge compatibility object without overriding web HTML5/HLS.js player fallbacks
   window.AndroidBridge = {
     getAppVersionCode: function () {
-      // Return a high version code so the Android APK self-updater modal does not trigger on Desktop
-      return 999999;
+      // Matches current server versionCode (5) so API requests send app_version=5 and update modal doesn't force APK install
+      return 5;
     },
     getAppVersionName: function () {
-      return '1.5 Desktop';
+      return '1.5';
     },
     canRequestInstalls: function () {
       return false;
