@@ -26,19 +26,20 @@ body.ctv-moved .topbar{display:none}
 .section-title{display:none}
 .search{border:0;border-radius:999px;background:rgba(255,255,255,.1)}
 /* filtros */
-.filter-bar{padding:12px 40px 16px}
-.pill{border-radius:999px;background:rgba(255,255,255,.1);border:0;padding:8px 18px}
+.filter-bar{padding:14px 40px 18px;overflow-y:visible}
+.pill{border-radius:999px;background:rgba(255,255,255,.1);border:0;padding:8px 18px;transition:transform .18s ease,box-shadow .18s ease,background .18s ease}
 .pill.active{background:#fff;color:#0a0a0f;box-shadow:none}
+.pill:focus,.pill:focus-visible,.pill:hover{transform:scale(1.03)!important;box-shadow:0 4px 16px rgba(162,77,240,.5),0 0 0 2px rgba(255,255,255,.9)!important}
 /* contenido y filas */
-.content{padding:10px 40px 70px}
+.content{padding:16px 40px 70px}
 .fav-row{margin:6px 0 26px}
 .fav-row-title,.row-title{font-size:1.45rem;font-weight:800;letter-spacing:-.2px}
 .fav-row-count{opacity:.55}
-.carousel{gap:22px;padding:18px 16px 34px;margin:0 -16px}
+.carousel{gap:22px;padding:30px 26px 38px;margin:-12px -26px -8px}
 .carousel .card{flex:0 0 clamp(168px,13.5vw,230px);width:clamp(168px,13.5vw,230px)}
-.grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:22px}
+.grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:24px;padding:24px 16px 30px;margin:0 -16px}
 .card{border:0;border-radius:18px;background:var(--bg-card);box-shadow:0 10px 28px rgba(0,0,0,.45);transition:transform .22s cubic-bezier(.2,.7,.2,1),box-shadow .22s}
-.card.focusable:focus,.card:focus,.card:hover{transform:translateY(-8px) scale(1.1);z-index:20}
+.card.focusable:focus,.card:focus,.card:hover{transform:translateY(-4px) scale(1.05)!important;z-index:20}
 .card-body{padding:10px 12px 12px}
 .card-title{font-size:.92rem;font-weight:600}
 .badge-top{background:var(--grad);border-radius:999px;padding:3px 10px}
@@ -46,13 +47,18 @@ body.ctv-moved .topbar{display:none}
 .tag-new{background:var(--grad)}
 /* botones, diálogos y detalle */
 .btn{border-radius:999px;background:rgba(255,255,255,.14);padding:10px 22px;border:0}
-.btn:focus{background:#fff;color:#0a0a0f}
+.btn:focus{background:#fff;color:#0a0a0f;transform:scale(1.03)!important}
 .btn.is-fav{background:#2a2505}
 .modal{-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px)}
-.dialog{border-radius:26px;background:rgba(18,19,26,.94)}
+.dialog{border-radius:26px;background:rgba(18,19,26,.94);padding:26px}
 .detail-full{background:#05060a}
 .detail-title{font-size:2rem}
 .detail-poster{border-radius:18px}
+.detail .server-list{padding:16px 36px 36px}
+.server-list{padding:6px 8px}
+.server-list button{border-radius:14px;border:2px solid rgba(255,255,255,.06);transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease,background .18s ease}
+.server-list button:focus,.server-list button:focus-visible,.server-list button:hover{transform:translateY(-2px)!important;border-color:var(--red)!important;box-shadow:0 6px 22px rgba(162,77,240,.45),0 0 0 2px rgba(255,255,255,.9)!important;background:rgba(176,76,242,.18)!important}
+.episode-btn:focus,.episode-btn:focus-visible,.episode-btn:hover,.episode-list button:focus,.episode-list button:hover,.agenda-card:focus,.agenda-card:hover{transform:translateY(-2px)!important}
 #update-progress-bar{background:var(--grad)}
 .agenda-time{background:var(--grad)}
 .episode-btn b{background:var(--grad)}
