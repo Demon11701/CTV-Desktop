@@ -121,13 +121,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION=$(node -p "require('./package.json').version")
-          TAG="v${VERSION}"
-          IPA_NAME="CTV-${VERSION}.ipa"
-          IPA_SIZE=$(stat -f%z "${IPA_NAME}")
-          NOW_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          REPO="${GITHUB_REPOSITORY}"
-          DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/${IPA_NAME}"
+          export VERSION=$(node -p "require('./package.json').version")
+          export TAG="v${VERSION}"
+          export IPA_NAME="CTV-${VERSION}.ipa"
+          export IPA_SIZE=$(stat -f%z "${IPA_NAME}")
+          export NOW_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          export REPO="${GITHUB_REPOSITORY}"
+          export DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/${IPA_NAME}"
 
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" "${IPA_NAME}" \
@@ -164,11 +164,11 @@ jobs:
 
             app.versions = [
               newEntry,
-              ...(app.versions || []).filter(v => v.version !== version)
+              ...(app.versions || []).filter(v => v.version && v.version !== version)
             ];
 
             fs.writeFileSync(repoPath, JSON.stringify(repo, null, 2) + "\n");
-          ' VERSION="$VERSION" IPA_SIZE="$IPA_SIZE" NOW_ISO="$NOW_ISO" DOWNLOAD_URL="$DOWNLOAD_URL"
+          '
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
