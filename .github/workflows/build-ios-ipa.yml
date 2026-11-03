@@ -122,6 +122,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           export VERSION=$(node -p "require('./package.json').version")
+          export BUILD_VER=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" build_ipa/Payload/App.app/Info.plist 2>/dev/null || echo "5")
           export TAG="v${VERSION}"
           export IPA_NAME="CTV-${VERSION}.ipa"
           export IPA_SIZE=$(stat -f%z "${IPA_NAME}")
@@ -154,7 +155,7 @@ jobs:
 
             const newEntry = {
               version,
-              buildVersion: String(version),
+              buildVersion: String(process.env.BUILD_VER || "5"),
               date,
               localizedDescription: "CTV v" + version + " para iOS (SideStore / AltStore).",
               downloadURL,
