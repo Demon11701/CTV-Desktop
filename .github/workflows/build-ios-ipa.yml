@@ -46,7 +46,7 @@ jobs:
           # Configure Info.plist for streaming (ATS arbitrary loads) and version info
           /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName CTV" "$INFO_PLIST" || true
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$INFO_PLIST" || true
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 5" "$INFO_PLIST" || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$INFO_PLIST" || true
           /usr/libexec/PlistBuddy -c "Delete :NSAppTransportSecurity" "$INFO_PLIST" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$INFO_PLIST"
           /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" "$INFO_PLIST"
