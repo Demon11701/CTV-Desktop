@@ -14,21 +14,30 @@
       "name": "CTV",
       "bundleIdentifier": "com.pelisjuanita.app",
       "developerName": "CTV",
-      "subtitle": "TV en vivo, Películas, Series y Agenda Deportiva",
-      "localizedDescription": "Aplicación nativa de CTV para iOS con soporte de TV en vivo, películas, series, agenda deportiva y bloqueador de anuncios.",
+      "subtitle": "TV en vivo, Películas, Series, Anime y Agenda Deportiva",
+      "localizedDescription": "Aplicación nativa de CTV para iOS con soporte de TV en vivo, películas, series, sección dedicada de Anime, doramas coreanos, reproductor directo sin anuncios y bloqueador de publicidad.",
       "iconURL": "https://raw.githubusercontent.com/Demon11701/CTV-Desktop/main/build/icons/icon.png",
       "tintColor": "#a24df0",
       "category": "entertainment",
-      "version": "1.5.0",
-      "versionDate": "2026-11-02T18:01:00Z",
-      "versionDescription": "CTV v1.5.0 para iOS (SideStore / AltStore).",
-      "downloadURL": "https://github.com/Demon11701/CTV-Desktop/releases/download/v1.5.0/CTV-1.5.0-ios.ipa",
-      "size": 1737538,
+      "version": "1.6.0",
+      "versionDate": "2026-11-10T00:57:00Z",
+      "versionDescription": "CTV v1.6.0: Solución a 'Acceso no autorizado' en series coreanas/anime (SERIESPLAYER), nueva sección dedicada de Anime, 8+ servidores por episodio y reproducción directa sin anuncios.",
+      "downloadURL": "https://github.com/Demon11701/CTV-Desktop/releases/download/v1.6.0/CTV-1.6.0-ios.ipa",
+      "size": 1746208,
       "appPermissions": {
         "entitlements": [],
         "privacy": {}
       },
       "versions": [
+        {
+          "version": "1.6.0",
+          "buildVersion": "1.6.0",
+          "date": "2026-11-10T00:57:00Z",
+          "localizedDescription": "CTV v1.6.0: Solución a 'Acceso no autorizado' en series coreanas/anime, nueva sección de Anime, más servidores y reproductor directo sin anuncios.",
+          "downloadURL": "https://github.com/Demon11701/CTV-Desktop/releases/download/v1.6.0/CTV-1.6.0-ios.ipa",
+          "size": 1746208,
+          "minOSVersion": "15.0"
+        },
         {
           "version": "1.5.0",
           "buildVersion": "1.5.0",

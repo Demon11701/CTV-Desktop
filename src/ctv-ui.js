@@ -1,4 +1,11 @@
-/* CTV UI: barra superior unificada y portada (hero) estilo Apple TV. Todo en try/catch: si algo falla, la app sigue normal. */
+/* CTV UI v1.6.0:
+ * 1. Barra superior unificada y portada (hero) estilo Apple TV.
+ * 2. Navegación con control remoto / teclado para menú horizontal.
+ * 3. Sección dedicada de Anime (Series Anime, Películas Anime y Doramas Coreanos).
+ * 4. Enriquecedor de servidores (espejos CDN directos para SERIESPLAYER + servidores multi-embed para Coreanas y Anime).
+ * 5. Extractor directo de streams (.m3u8/.mp4 + subtítulos .vtt) sin anuncios y escudo anti-popups multiplataforma (.exe, .AppImage, .ipa, .apk).
+ * 6. Comprobador multiplataforma de actualizaciones desde GitHub Releases.
+ */
 (function () {
   try {
     var sb = document.getElementById('sidebar');
@@ -98,7 +105,7 @@
   } catch (e) {}
 })();
 
-/* CTV: navegación con control remoto para el menú horizontal (el original estaba pensado para un menú vertical). */
+/* CTV: navegación con control remoto para el menú horizontal */
 (function () {
   try {
     var menu = document.querySelector('.menu');
@@ -118,7 +125,6 @@
       return false;
     }
 
-    // Menú: ←/→ entre botones, ↓ al contenido (↑ en la barra inferior del teléfono)
     menu.addEventListener('keydown', function (e) {
       var k = e.key;
       if (k !== 'ArrowLeft' && k !== 'ArrowRight' && k !== 'ArrowDown' && k !== 'ArrowUp') return;
@@ -139,7 +145,6 @@
       }
     }, true);
 
-    // Búsqueda y campana (en la barra superior): ↓ al contenido, ← de vuelta al menú
     var sb = document.getElementById('sidebar');
     if (sb) sb.addEventListener('keydown', function (e) {
       var t = e.target;
@@ -150,7 +155,6 @@
       }
     });
 
-    // Portada y primera fila: ↓ de la portada baja a la primera fila; ↑ de la primera fila sube a la portada o al menú
     document.addEventListener('keydown', function (e) {
       var t = e.target, k = e.key;
       if (!t || !t.closest) return;
@@ -179,11 +183,897 @@
   } catch (e) {}
 })();
 
-/* CTV: Comprobador multiplataforma de actualizaciones desde GitHub Releases (Android/Smart TV, Windows, Linux e iOS SideStore) */
+/* ============================================================================
+ * CTV: SECCIÓN DEDICADA DE ANIME + ACCESO RÁPIDO A SERIES COREANAS (DORAMAS)
+ * ============================================================================ */
+(function () {
+  var animeTab = 'series'; // 'series' | 'movies' | 'dorama'
+  var animePage = 0;
+  var animeLoading = false;
+  var animeEnded = false;
+  var animeItems = [];
+
+  var ANIME_TABS = [
+    { id: 'series', label: '🎌 Series Anime' },
+    { id: 'movies', label: '🎬 Películas Anime' },
+    { id: 'dorama', label: '🇰🇷 Series Coreanas (Doramas)' }
+  ];
+
+  function getHelpers() {
+    return window.__ctvHelpers || {};
+  }
+
+  function renderAnimeFilterBar() {
+    var titleEl = document.getElementById('section-title');
+    var bar = document.getElementById('filter-bar');
+    if (titleEl) {
+      if (animeTab === 'series') titleEl.textContent = 'Anime · Series';
+      else if (animeTab === 'movies') titleEl.textContent = 'Anime · Películas';
+      else titleEl.textContent = 'Series Coreanas · Doramas';
+    }
+    if (!bar) return;
+    bar.innerHTML = '';
+    bar.classList.remove('hidden');
+
+    ANIME_TABS.forEach(function (tab) {
+      var btn = document.createElement('button');
+      btn.className = 'pill focusable' + (animeTab === tab.id ? ' active' : '');
+      btn.tabIndex = 0;
+      btn.textContent = tab.label;
+      btn.onclick = function () {
+        if (animeTab === tab.id && animeItems.length) return;
+        animeTab = tab.id;
+        resetAndLoadAnime();
+      };
+      bar.appendChild(btn);
+    });
+  }
+
+  function resetAndLoadAnime() {
+    animePage = 0;
+    animeLoading = false;
+    animeEnded = false;
+    animeItems = [];
+    renderAnimeFilterBar();
+    var content = document.getElementById('content');
+    if (content) {
+      content.innerHTML = '<div class="grid" id="movie-grid"></div>';
+      content.scrollTop = 0;
+    }
+    loadAnimePage(false);
+  }
+
+  function appendAnimeCards(items, replaceAll) {
+    var grid = document.getElementById('movie-grid');
+    if (!grid) return;
+    var helpers = getHelpers();
+    if (replaceAll) grid.innerHTML = '';
+    var emptyEl = grid.querySelector('.empty');
+    if (emptyEl) emptyEl.remove();
+
+    if (!items.length && !animeItems.length && !animeLoading) {
+      grid.innerHTML =
+        '<div class="empty"><div style="font-size:3rem">🎌</div><h3>Sin resultados</h3><p>Prueba con otra pestaña o búsqueda.</p></div>';
+      return;
+    }
+
+    var frag = document.createDocumentFragment();
+    items.forEach(function (item) {
+      var card = null;
+      if (item.tipo === 'serie' && typeof helpers.r_ === 'function') {
+        card = helpers.r_(item);
+      } else if (typeof helpers.HE === 'function') {
+        card = helpers.HE(item);
+      }
+      if (card) frag.appendChild(card);
+    });
+    grid.appendChild(frag);
+  }
+
+  async function loadAnimePage(isNextPage) {
+    var activeMenu = document.querySelector('.menu-item.active');
+    if (!activeMenu || activeMenu.getAttribute('data-section') !== 'anime') return;
+    if (animeLoading || (isNextPage && animeEnded)) return;
+
+    var helpers = getHelpers();
+    if (!helpers.Yr) return;
+
+    animeLoading = true;
+    var loadingEl = document.getElementById('loading');
+    if (loadingEl) loadingEl.classList.remove('hidden');
+
+    try {
+      var nextPage = isNextPage ? animePage + 1 : 1;
+      var baseUrl = '';
+      if (animeTab === 'movies') {
+        baseUrl = (helpers.eE || 'https://pelisjuanita.com/tv/app/movies.php') + '?genero=anime&pagina=' + nextPage;
+      } else if (animeTab === 'dorama') {
+        baseUrl = (helpers.Rh || 'https://pelisjuanita.com/tv/app/series.php') + '?genero=dorama&pagina=' + nextPage;
+      } else {
+        baseUrl = (helpers.Rh || 'https://pelisjuanita.com/tv/app/series.php') + '?genero=anime&pagina=' + nextPage;
+      }
+
+      var resp = await fetch(helpers.Yr(baseUrl), { headers: { Accept: 'application/json' } });
+      var json = await resp.json();
+      var rawList = Array.isArray(json.datos) ? json.datos : (Array.isArray(json) ? json : []);
+
+      if (!rawList.length) {
+        animeEnded = true;
+        if (!animeItems.length) appendAnimeCards([], true);
+      } else {
+        animePage = nextPage;
+        var mapped = rawList.map(function (row) {
+          if (animeTab === 'movies') {
+            return typeof helpers.eK === 'function' ? helpers.eK(row) : row;
+          }
+          return typeof helpers.EK === 'function' ? helpers.EK(row) : row;
+        });
+
+        var seen = new Set(animeItems.map(function (x) { return x.slug; }));
+        var fresh = mapped.filter(function (x) { return !x.slug || !seen.has(x.slug); });
+        animeItems = isNextPage ? animeItems.concat(fresh) : mapped;
+
+        var totalPages = parseInt(json.total_paginas || '', 10);
+        var currPage = parseInt(json.pagina_actual || nextPage, 10);
+        if (!isNaN(totalPages) && !isNaN(currPage)) {
+          if (currPage >= totalPages) animeEnded = true;
+        } else if (rawList.length < 25) {
+          animeEnded = true;
+        }
+
+        appendAnimeCards(isNextPage ? fresh : animeItems, !isNextPage);
+      }
+    } catch (err) {
+      console.warn('Error cargando sección Anime:', err);
+    } finally {
+      animeLoading = false;
+      if (loadingEl) loadingEl.classList.add('hidden');
+    }
+  }
+
+  window.ctvOpenAnimeSection = function (preserveTab) {
+    if (!preserveTab) animeTab = 'series';
+    resetAndLoadAnime();
+  };
+
+  window.ctvLoadMoreAnime = function () {
+    loadAnimePage(true);
+  };
+})();
+
+/* ============================================================================
+ * CTV: ENRIQUECEDOR DE SERVIDORES (SERIES COREANAS, ANIME Y PELÍCULAS)
+ * ============================================================================ */
+(function () {
+  var SERIESPLAYER_MIRRORS = [
+    { host: 'r-limit.flixlat.com', name: 'FLIXLAT DIRECTO' },
+    { host: 'vod-limit-02.playspelis.com', name: 'PLAYSPELIS DIRECTO' },
+    { host: 'akm-cdn-play-web.onfilom.com', name: 'ONFILOM DIRECTO' },
+    { host: 'data-limit-c.solo-latino.com', name: 'SOLOLATINO DIRECTO' }
+  ];
+
+  function addParam(url, key, val) {
+    return url + (url.indexOf('?') >= 0 ? '&' : '?') + key + '=' + encodeURIComponent(val);
+  }
+
+  window.ctvEnrichSeriesServers = function (servers, serieInfo, slug, season, episode) {
+    var list = Array.isArray(servers) ? servers.slice() : [];
+    var seenUrls = new Set();
+    list.forEach(function (s) {
+      var u = (s && (s.url || s.link)) || '';
+      if (u) seenUrls.add(u);
+    });
+
+    // 1. Expandir SERIESPLAYER con 4 espejos CDN independientes sin anuncios
+    var spServers = list.filter(function (s) {
+      var u = (s && (s.url || s.link)) || '';
+      return u.indexOf('seriesplayer.fortamomar.workers.dev') >= 0 || u.indexOf('pelisplayer.fortamomar.workers.dev') >= 0;
+    });
+
+    spServers.forEach(function (sp) {
+      var baseUrl = sp.url || sp.link || '';
+      var audio = sp.audio || sp.idioma || 'SUBTITULADA';
+      var quality = sp.quality || sp.calidad || 'HD';
+      sp.server_name = 'SERIESPLAYER · DIRECTO';
+
+      SERIESPLAYER_MIRRORS.forEach(function (m) {
+        var mirrorUrl = addParam(baseUrl, 'ctv_cdn', m.host);
+        if (!seenUrls.has(mirrorUrl)) {
+          seenUrls.add(mirrorUrl);
+          list.push({
+            url: mirrorUrl,
+            audio: audio,
+            quality: quality,
+            server_name: m.name,
+            ServerName: m.name
+          });
+        }
+      });
+    });
+
+    // 2. Agregar servidores multi-embed internacionales/subtitulados usando TMDbId / IMDbId
+    var tmdbId = serieInfo && (serieInfo.TMDbId || serieInfo.tmdb_id || serieInfo.tmdb);
+    var imdbId = serieInfo && (serieInfo.imdb_id || serieInfo.ImdbId || serieInfo.imdb);
+    var t = season || 1;
+    var e = episode || 1;
+
+    var defaultAudio = 'SUBTITULADA / MULTI';
+    if (list.length && (list[0].audio || list[0].idioma)) {
+      defaultAudio = list[0].audio || list[0].idioma;
+    }
+
+    var extraCandidates = [];
+    if (imdbId) {
+      extraCandidates.push({
+        server_name: 'VSEMBED · MULTI',
+        url: 'https://vsembed.su/embed/tv?imdb=' + encodeURIComponent(imdbId) + '&season=' + t + '&episode=' + e + '&ds_lang=es',
+        audio: defaultAudio,
+        quality: 'HD'
+      });
+    } else if (tmdbId) {
+      extraCandidates.push({
+        server_name: 'VSEMBED · MULTI',
+        url: 'https://vsembed.su/embed/tv?tmdb=' + encodeURIComponent(tmdbId) + '&season=' + t + '&episode=' + e + '&ds_lang=es',
+        audio: defaultAudio,
+        quality: 'HD'
+      });
+    }
+
+    if (tmdbId) {
+      extraCandidates.push(
+        {
+          server_name: 'VIDSRC PRO',
+          url: 'https://vidsrc.me/embed/tv?tmdb=' + encodeURIComponent(tmdbId) + '&season=' + t + '&episode=' + e + '&ds_lang=es',
+          audio: 'SUBTITULADA',
+          quality: 'HD'
+        },
+        {
+          server_name: 'VIDLINK HD',
+          url: 'https://vidlink.pro/tv/' + encodeURIComponent(tmdbId) + '/' + t + '/' + e,
+          audio: 'SUBTITULADA',
+          quality: 'FHD'
+        },
+        {
+          server_name: 'MULTIEMBED',
+          url: 'https://multiembed.mov/?video_id=' + encodeURIComponent(tmdbId) + '&tmdb=1&s=' + t + '&e=' + e,
+          audio: 'SUBTITULADA',
+          quality: 'HD'
+        },
+        {
+          server_name: '2EMBED SERVER',
+          url: 'https://www.2embed.cc/embedtv/' + encodeURIComponent(tmdbId) + '&s=' + t + '&e=' + e,
+          audio: 'SUBTITULADA',
+          quality: 'HD'
+        }
+      );
+    }
+
+    extraCandidates.forEach(function (cand) {
+      if (!seenUrls.has(cand.url)) {
+        seenUrls.add(cand.url);
+        list.push(cand);
+      }
+    });
+
+    return list;
+  };
+
+  window.ctvEnrichMovieServers = function (servers, movieInfo) {
+    var list = Array.isArray(servers) ? servers.slice() : [];
+    var seenUrls = new Set();
+    list.forEach(function (s) {
+      var u = (s && (s.url || s.link)) || '';
+      if (u) seenUrls.add(u);
+    });
+
+    var spServers = list.filter(function (s) {
+      var u = (s && (s.url || s.link)) || '';
+      return u.indexOf('seriesplayer.fortamomar.workers.dev') >= 0 || u.indexOf('pelisplayer.fortamomar.workers.dev') >= 0;
+    });
+
+    spServers.forEach(function (sp) {
+      var baseUrl = sp.url || sp.link || '';
+      var idioma = sp.idioma || sp.audio || 'LATINO';
+      var calidad = sp.calidad || sp.quality || 'HD';
+      sp.server_name = 'PELISPLAYER · DIRECTO';
+
+      SERIESPLAYER_MIRRORS.forEach(function (m) {
+        var mirrorUrl = addParam(baseUrl, 'ctv_cdn', m.host);
+        if (!seenUrls.has(mirrorUrl)) {
+          seenUrls.add(mirrorUrl);
+          list.push({
+            url: mirrorUrl,
+            idioma: idioma,
+            calidad: calidad,
+            server_name: m.name,
+            ServerName: m.name
+          });
+        }
+      });
+    });
+
+    var tmdbId = movieInfo && (movieInfo.TMDbId || movieInfo.tmdb_id || movieInfo.tmdb);
+    var imdbId = movieInfo && (movieInfo.imdb_id || movieInfo.ImdbId || movieInfo.imdb);
+    var genre = String((movieInfo && movieInfo.genero) || '').toLowerCase();
+    var isAnimeOrFew = genre.indexOf('anime') >= 0 || genre.indexOf('animac') >= 0 || list.length <= 3;
+
+    if (isAnimeOrFew && (tmdbId || imdbId)) {
+      var extras = [];
+      if (imdbId) {
+        extras.push({
+          server_name: 'VSEMBED · MULTI',
+          url: 'https://vsembed.su/embed/movie?imdb=' + encodeURIComponent(imdbId) + '&ds_lang=es',
+          idioma: 'SUBTITULADA',
+          calidad: 'HD'
+        });
+      }
+      if (tmdbId) {
+        extras.push(
+          {
+            server_name: 'VIDSRC PRO',
+            url: 'https://vidsrc.me/embed/movie?tmdb=' + encodeURIComponent(tmdbId) + '&ds_lang=es',
+            idioma: 'SUBTITULADA',
+            calidad: 'HD'
+          },
+          {
+            server_name: 'VIDLINK HD',
+            url: 'https://vidlink.pro/movie/' + encodeURIComponent(tmdbId),
+            idioma: 'SUBTITULADA',
+            calidad: 'FHD'
+          },
+          {
+            server_name: 'MULTIEMBED',
+            url: 'https://multiembed.mov/?video_id=' + encodeURIComponent(tmdbId) + '&tmdb=1',
+            idioma: 'SUBTITULADA',
+            calidad: 'HD'
+          }
+        );
+      }
+      extras.forEach(function (ex) {
+        if (!seenUrls.has(ex.url)) {
+          seenUrls.add(ex.url);
+          list.push(ex);
+        }
+      });
+    }
+
+    return list;
+  };
+})();
+
+/* ============================================================================
+ * CTV: EXTRACTOR DIRECTO DE VIDEO (.M3U8 / .MP4 + SUBTÍTULOS .VTT) SIN ANUNCIOS
+ * Funciona en Windows (.exe), Linux (.AppImage), iOS (.ipa) y Android (.apk)
+ * ============================================================================ */
+(function () {
+  var activeBlobUrls = [];
+  var currentSubTracks = [];
+  var selectedSubIndex = -1;
+
+  function cleanupSubs() {
+    activeBlobUrls.forEach(function (u) {
+      try { URL.revokeObjectURL(u); } catch (e) {}
+    });
+    activeBlobUrls = [];
+    currentSubTracks = [];
+    selectedSubIndex = -1;
+    var subBtn = document.getElementById('player-subs');
+    if (subBtn) subBtn.classList.add('hidden');
+    var subModal = document.getElementById('ctv-subs-modal');
+    if (subModal) subModal.remove();
+    var video = document.getElementById('player-video');
+    if (video) {
+      var tracks = video.querySelectorAll('track');
+      for (var i = 0; i < tracks.length; i++) tracks[i].remove();
+    }
+  }
+
+  window.ctvOnPlayerClose = cleanupSubs;
+
+  // Petición HTTP con Referer personalizado (usa /__ctv_proxy en PC y CapacitorHttp nativo en iOS)
+  async function ctvHttpRequest(targetUrl, opts) {
+    opts = opts || {};
+    var method = (opts.method || 'GET').toUpperCase();
+    var ref = opts.referer || 'https://pelisjuanita.com/';
+    var contentType = opts.contentType || '';
+    var body = opts.body || '';
+
+    // 1. Desktop (Electron local server en 127.0.0.1)
+    if (location.hostname === '127.0.0.1' || location.hostname === 'localhost') {
+      try {
+        var proxyUrl =
+          '/__ctv_proxy?url=' + encodeURIComponent(targetUrl) +
+          '&ref=' + encodeURIComponent(ref) +
+          '&method=' + encodeURIComponent(method) +
+          (contentType ? '&ct=' + encodeURIComponent(contentType) : '') +
+          (body ? '&body=' + encodeURIComponent(body) : '');
+        var r = await fetch(proxyUrl);
+        if (r.ok) {
+          var j = await r.json();
+          if (j && j.body) {
+            return { status: j.status || 200, url: j.finalUrl || targetUrl, body: j.body };
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 2. iOS / Capacitor nativePromise('CapacitorHttp', 'request', ...)
+    try {
+      if (window.Capacitor && typeof window.Capacitor.nativePromise === 'function') {
+        var headers = {
+          'Referer': ref,
+          'Origin': 'https://pelisjuanita.com',
+          'User-Agent': navigator.userAgent || 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Sec-Fetch-Dest': 'iframe',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'cross-site'
+        };
+        if (contentType) headers['Content-Type'] = contentType;
+
+        var reqPayload = {
+          url: targetUrl,
+          method: method,
+          headers: headers
+        };
+        if (body) {
+          reqPayload.data = contentType.indexOf('json') >= 0 ? JSON.parse(body) : body;
+        }
+        var capRes = await window.Capacitor.nativePromise('CapacitorHttp', 'request', reqPayload);
+        if (capRes && capRes.data != null) {
+          var strData = typeof capRes.data === 'string' ? capRes.data : JSON.stringify(capRes.data);
+          return { status: capRes.status || 200, url: capRes.url || targetUrl, body: strData };
+        }
+      }
+    } catch (e) {}
+
+    // 3. Fallback fetch estándar
+    try {
+      var fetchOpts = { method: method, headers: {} };
+      if (contentType) fetchOpts.headers['Content-Type'] = contentType;
+      if (body) fetchOpts.body = body;
+      var resp = await fetch(targetUrl, fetchOpts);
+      var txt = await resp.text();
+      return { status: resp.status, url: resp.url || targetUrl, body: txt };
+    } catch (e) {
+      return { status: 0, url: targetUrl, body: '' };
+    }
+  }
+
+  function baseN(num, base) {
+    var digits = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    if (num === 0) return '0';
+    var out = '';
+    while (num > 0) {
+      out = digits[num % base] + out;
+      num = Math.floor(num / base);
+    }
+    return out;
+  }
+
+  function unpackPacker(html) {
+    if (!html) return '';
+    var extra = '';
+    var re = /\}\('([\s\S]*?)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'([\s\S]*?)'\.split\('\|'\)/g;
+    var m;
+    while ((m = re.exec(html)) !== null) {
+      try {
+        var p = m[1];
+        var a = parseInt(m[2], 10);
+        var c = parseInt(m[3], 10);
+        var k = m[4].split('|');
+        for (var i = c - 1; i >= 0; i--) {
+          if (k[i]) {
+            var token = baseN(i, a);
+            p = p.replace(new RegExp('\\b' + token + '\\b', 'g'), k[i]);
+          }
+        }
+        extra += '\n' + p;
+      } catch (e) {}
+    }
+    return html + extra;
+  }
+
+  function decodeVoeJson(html) {
+    try {
+      var m = html.match(/<script\s+type=["']application\/json["']>\s*(\[\s*["'][\s\S]*?["']\s*\])\s*<\/script>/i);
+      if (!m) return null;
+      var arr = JSON.parse(m[1]);
+      if (!arr || !arr[0]) return null;
+      var s = String(arr[0]).replace(/[a-zA-Z]/g, function (c) {
+        var code = c.charCodeAt(0);
+        var base = code <= 90 ? 65 : 97;
+        return String.fromCharCode(((code - base + 13) % 26) + base);
+      });
+      var junk = ['@$', '^^', '~@', '%?', '*~', '!!', '#&'];
+      for (var i = 0; i < junk.length; i++) {
+        s = s.split(junk[i]).join('');
+      }
+      var step1 = atob(s);
+      var shifted = '';
+      for (var j = step1.length - 1; j >= 0; j--) {
+        shifted += String.fromCharCode(step1.charCodeAt(j) - 3);
+      }
+      var finalJson = atob(shifted);
+      return JSON.parse(finalJson);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function srtToVtt(text) {
+    if (!text) return '';
+    var trimmed = text.trim();
+    if (trimmed.indexOf('WEBVTT') === 0) return trimmed;
+    return 'WEBVTT\n\n' + trimmed.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+  }
+
+  async function extractDirectStream(rawUrl) {
+    try {
+      var parsed = new URL(rawUrl);
+      var host = parsed.hostname.toLowerCase();
+      var forceCdn = parsed.searchParams.get('ctv_cdn') || '';
+
+      // Caso A: VIDARA / VIDARAA (API POST /api/stream)
+      if (host.indexOf('vidara') >= 0 && parsed.pathname.indexOf('/e/') === 0) {
+        var fcode = parsed.pathname.split('/').filter(Boolean).pop();
+        if (fcode) {
+          var apiRes = await ctvHttpRequest(parsed.origin + '/api/stream', {
+            method: 'POST',
+            referer: rawUrl,
+            contentType: 'application/json',
+            body: JSON.stringify({ filecode: fcode, device: 'mobile', codecs: ['avc1.640028'] })
+          });
+          if (apiRes.body) {
+            var vj = JSON.parse(apiRes.body);
+            if (vj && vj.streaming_url) {
+              var vSubs = [];
+              if (Array.isArray(vj.subtitles)) {
+                vj.subtitles.forEach(function (st) {
+                  if (st && st.file_path) {
+                    vSubs.push({
+                      url: st.file_path,
+                      label: st.language || 'Subtítulo',
+                      default: String(st.language || '').toLowerCase().indexOf('esp') >= 0
+                    });
+                  }
+                });
+              }
+              return { url: vj.streaming_url, type: 'hls', tracks: vSubs };
+            }
+          }
+        }
+      }
+
+      // Caso B: SAVEFILES (POST /dl)
+      if (host.indexOf('savefiles.com') >= 0 && parsed.pathname.indexOf('/e/') === 0) {
+        var sfCode = parsed.pathname.split('/').filter(Boolean).pop();
+        if (sfCode) {
+          var sfRes = await ctvHttpRequest(parsed.origin + '/dl', {
+            method: 'POST',
+            referer: rawUrl,
+            contentType: 'application/x-www-form-urlencoded',
+            body: 'op=embed&file_code=' + encodeURIComponent(sfCode) + '&auto=1&referer=https://pelisjuanita.com/'
+          });
+          if (sfRes.body) {
+            var sfBody = unpackPacker(sfRes.body).replace(/\\\//g, '/');
+            var sfMatch = sfBody.match(/https?:\/\/[^\s"'<>\\]+\.m3u8[^\s"'<>\\]*/i);
+            if (sfMatch) {
+              return { url: sfMatch[0], type: 'hls', tracks: [] };
+            }
+          }
+        }
+      }
+
+      // Caso C: HGLINK -> VIBUXER mirror
+      var targetUrl = rawUrl;
+      if (host.indexOf('hglink.to') >= 0) {
+        targetUrl = 'https://vibuxer.com' + parsed.pathname + parsed.search;
+      }
+
+      var pageRes = await ctvHttpRequest(targetUrl, { referer: 'https://pelisjuanita.com/' });
+      if (!pageRes.body) return null;
+      var html = pageRes.body;
+
+      // Seguir redirección JS (ej. voe.sx -> susanexpectcare.com)
+      var jsRedir = html.match(/window\.location\.href\s*=\s*['"](https?:\/\/[^'"]+)['"]/i);
+      if (jsRedir && jsRedir[1] && html.length < 3000) {
+        var secondRes = await ctvHttpRequest(jsRedir[1], { referer: targetUrl });
+        if (secondRes.body) {
+          html = secondRes.body;
+          targetUrl = jsRedir[1];
+        }
+      }
+
+      // Caso D: VOE JSON obfuscation
+      var voeData = decodeVoeJson(html);
+      if (voeData && voeData.source) {
+        var voeTracks = [];
+        if (Array.isArray(voeData.captions)) {
+          voeData.captions.forEach(function (c) {
+            if (c && c.file) {
+              voeTracks.push({
+                url: c.file,
+                label: c.label || c.language || 'Subtítulo',
+                default: String(c.label || '').toLowerCase().indexOf('esp') >= 0
+              });
+            }
+          });
+        }
+        return { url: voeData.source, type: 'hls', tracks: voeTracks };
+      }
+
+      // Caso E: SERIESPLAYER / PELISPLAYER / PACKER (StreamHG, Vibuxer, Morencius, Callistanise, Lulustream, MixDrop)
+      var unpacked = unpackPacker(html).replace(/\\\//g, '/');
+
+      // Extraer subtítulos de JWPlayer tracks: [...]
+      var tracks = [];
+      var tracksMatch = html.match(/tracks\s*:\s*(\[\s*\{[\s\S]*?\}\s*\])/);
+      if (tracksMatch) {
+        try {
+          var rawTracks = JSON.parse(tracksMatch[1]);
+          if (Array.isArray(rawTracks)) {
+            rawTracks.forEach(function (t) {
+              if (t && t.file && (!t.kind || t.kind === 'subtitles' || t.kind === 'captions')) {
+                tracks.push({
+                  url: t.file,
+                  label: t.label || 'Subtítulo',
+                  default: !!t.default || String(t.label || '').toLowerCase().indexOf('espa') >= 0
+                });
+              }
+            });
+          }
+        } catch (e) {}
+      }
+
+      var m3u8Match = unpacked.match(/(?:https?:)?\/\/[^\s"'<>\\]+\.m3u8[^\s"'<>\\]*/i);
+      if (m3u8Match) {
+        var streamUrl = m3u8Match[0];
+        if (streamUrl.indexOf('//') === 0) streamUrl = 'https:' + streamUrl;
+        if (forceCdn) {
+          streamUrl = streamUrl.replace(/^https?:\/\/[^/]+/i, 'https://' + forceCdn);
+        }
+        return { url: streamUrl, type: 'hls', tracks: tracks };
+      }
+
+      // MixDrop / MP4 directo
+      var mp4Match = unpacked.match(/(?:https?:)?\/\/[^\s"'<>\\]+\.mp4\?[^\s"'<>\\]*/i);
+      if (mp4Match && mp4Match[0].indexOf('bigbuckbunny') < 0) {
+        var mp4Url = mp4Match[0];
+        if (mp4Url.indexOf('//') === 0) mp4Url = 'https:' + mp4Url;
+        return { url: mp4Url, type: 'mp4', tracks: tracks };
+      }
+
+      // Fallback para seriesplayer si devolvió HTML válido pero sin match directo
+      if (host.indexOf('workers.dev') >= 0 && html.indexOf('<html') >= 0) {
+        return { url: rawUrl, type: 'srcdoc', html: html, tracks: [] };
+      }
+    } catch (e) {
+      console.warn('Error extrayendo stream directo:', e);
+    }
+    return null;
+  }
+
+  function applySubtitleSelection(index) {
+    var video = document.getElementById('player-video');
+    if (!video || !video.textTracks) return;
+    selectedSubIndex = index;
+    for (var i = 0; i < video.textTracks.length; i++) {
+      video.textTracks[i].mode = i === index ? 'showing' : 'disabled';
+    }
+    var subBtn = document.getElementById('player-subs');
+    if (subBtn) {
+      if (index >= 0 && currentSubTracks[index]) {
+        subBtn.textContent = '💬 ' + currentSubTracks[index].label;
+      } else {
+        subBtn.textContent = '💬 Subtítulos (Off)';
+      }
+    }
+  }
+
+  function showSubtitlesModal() {
+    var old = document.getElementById('ctv-subs-modal');
+    if (old) { old.remove(); return; }
+
+    var modal = document.createElement('div');
+    modal.id = 'ctv-subs-modal';
+    modal.className = 'modal';
+    modal.style.zIndex = '99999';
+
+    var html =
+      '<div class="dialog" style="max-width:420px">' +
+      '<div class="dialog-head"><h3>💬 Subtítulos</h3><button class="btn focusable" id="ctv-subs-close" tabindex="0">✕</button></div>' +
+      '<div class="server-list" id="ctv-subs-list" style="max-height:55vh;overflow-y:auto"></div>' +
+      '</div>';
+    modal.innerHTML = html;
+    document.body.appendChild(modal);
+
+    var listEl = modal.querySelector('#ctv-subs-list');
+
+    var offBtn = document.createElement('button');
+    offBtn.className = 'focusable';
+    offBtn.tabIndex = 0;
+    offBtn.innerHTML = '<span>' + (selectedSubIndex < 0 ? '✔ ' : '') + 'Desactivados</span>';
+    offBtn.onclick = function () {
+      applySubtitleSelection(-1);
+      modal.remove();
+    };
+    listEl.appendChild(offBtn);
+
+    currentSubTracks.forEach(function (tr, i) {
+      var b = document.createElement('button');
+      b.className = 'focusable';
+      b.tabIndex = 0;
+      b.innerHTML = '<span>' + (selectedSubIndex === i ? '✔ ' : '') + tr.label + '</span>';
+      b.onclick = function () {
+        applySubtitleSelection(i);
+        modal.remove();
+      };
+      listEl.appendChild(b);
+    });
+
+    modal.querySelector('#ctv-subs-close').onclick = function () { modal.remove(); };
+    modal.addEventListener('click', function (e) { if (e.target === modal) modal.remove(); });
+  }
+
+  async function attachSubtitlesToVideo(tracks) {
+    cleanupSubs();
+    if (!Array.isArray(tracks) || !tracks.length) return;
+    var video = document.getElementById('player-video');
+    if (!video) return;
+
+    // Ordenar poniendo Español primero
+    var sorted = tracks.slice().sort(function (a, b) {
+      var aEs = /espa|spanish|latino|castellano/i.test(a.label || '') ? 0 : 1;
+      var bEs = /espa|spanish|latino|castellano/i.test(b.label || '') ? 0 : 1;
+      return aEs - bEs;
+    });
+
+    var defaultIdx = -1;
+    for (var i = 0; i < sorted.length; i++) {
+      var t = sorted[i];
+      try {
+        var res = await ctvHttpRequest(t.url, { referer: 'https://pelisjuanita.com/' });
+        if (!res.body || res.body.length < 10) continue;
+        var vttText = srtToVtt(res.body);
+        var blob = new Blob([vttText], { type: 'text/vtt;charset=utf-8' });
+        var blobUrl = URL.createObjectURL(blob);
+        activeBlobUrls.push(blobUrl);
+
+        var trackIdx = currentSubTracks.length;
+        currentSubTracks.push({ label: t.label || ('Subtítulo ' + (trackIdx + 1)), blobUrl: blobUrl });
+
+        var trackEl = document.createElement('track');
+        trackEl.kind = 'subtitles';
+        trackEl.label = t.label || ('Subtítulo ' + (trackIdx + 1));
+        trackEl.srclang = /espa|spanish/i.test(t.label || '') ? 'es' : 'en';
+        trackEl.src = blobUrl;
+        if (defaultIdx < 0 && (t.default || /espa|spanish/i.test(t.label || ''))) {
+          defaultIdx = trackIdx;
+          trackEl.default = true;
+        }
+        video.appendChild(trackEl);
+      } catch (e) {}
+    }
+
+    if (currentSubTracks.length > 0) {
+      if (defaultIdx < 0) defaultIdx = 0;
+      var subBtn = document.getElementById('player-subs');
+      if (subBtn) {
+        subBtn.classList.remove('hidden');
+        subBtn.onclick = function (e) {
+          e.stopPropagation();
+          showSubtitlesModal();
+        };
+      }
+      setTimeout(function () {
+        applySubtitleSelection(defaultIdx);
+      }, 400);
+    }
+  }
+
+  function isExtractableServer(url) {
+    if (!url) return false;
+    var l = String(url).toLowerCase();
+    return (
+      l.indexOf('workers.dev') >= 0 ||
+      l.indexOf('seriesplayer') >= 0 ||
+      l.indexOf('pelisplayer') >= 0 ||
+      l.indexOf('voe.sx') >= 0 ||
+      l.indexOf('vibuxer.com') >= 0 ||
+      l.indexOf('hglink.to') >= 0 ||
+      l.indexOf('streamwish') >= 0 ||
+      l.indexOf('morencius.com') >= 0 ||
+      l.indexOf('callistanise.com') >= 0 ||
+      l.indexOf('vidhide') >= 0 ||
+      l.indexOf('lulustream.com') >= 0 ||
+      l.indexOf('lulust.com') >= 0 ||
+      l.indexOf('vidara.to') >= 0 ||
+      l.indexOf('vidaraa.cc') >= 0 ||
+      l.indexOf('savefiles.com') >= 0 ||
+      l.indexOf('mixdrop.top') >= 0
+    );
+  }
+
+  window.ctvPlaySmartEmbed = function (url, title, serverName, slug, resumeKey) {
+    var rawUrl = String(url || '');
+    if (!rawUrl || rawUrl.indexOf('youtube.com/embed') >= 0) return false;
+
+    // En Android nativo (CTV.apk), si el servidor es SERIESPLAYER, renombrarlo para que EmbedPlayerActivity use su ExoPlayer nativo
+    var bridge = window.AndroidBridge;
+    var isNativeAndroid = !!(bridge && typeof bridge.playEmbedSlug === 'function');
+    if (isNativeAndroid && rawUrl.indexOf('workers.dev') >= 0 && rawUrl.indexOf('ctv_cdn=') < 0) {
+      var safeServer = String(serverName || 'DIRECTO').replace(/seriesplayer|pelisplayer/gi, 'DIRECTO');
+      if (resumeKey && typeof bridge.playEmbedResume === 'function') {
+        bridge.playEmbedResume(title, rawUrl, safeServer, slug || '', resumeKey);
+        return true;
+      }
+      bridge.playEmbedSlug(title, rawUrl, safeServer, slug || '');
+      return true;
+    }
+
+    if (!isExtractableServer(rawUrl)) {
+      return false;
+    }
+
+    // Abrir modal en estado de carga limpia y extraer el stream directo sin anuncios
+    if (typeof window.__ctvOpenModal === 'function') {
+      window.__ctvOpenModal(title + ' · Conectando sin anuncios…');
+    }
+
+    extractDirectStream(rawUrl).then(function (res) {
+      var modal = document.getElementById('player-modal');
+      if (!modal || modal.classList.contains('hidden')) return;
+
+      if (res && res.type === 'hls' && res.url) {
+        if (typeof window.__ctvPlayHls === 'function') {
+          window.__ctvPlayHls(res.url, title);
+          attachSubtitlesToVideo(res.tracks || []);
+          return;
+        }
+      }
+
+      if (res && res.type === 'mp4' && res.url) {
+        if (typeof window.__ctvOpenModal === 'function') window.__ctvOpenModal(title);
+        var v = document.getElementById('player-video');
+        if (v) {
+          v.classList.remove('hidden');
+          v.src = res.url;
+          v.play().catch(function () {});
+          v.focus();
+          attachSubtitlesToVideo(res.tracks || []);
+          return;
+        }
+      }
+
+      if (res && res.type === 'srcdoc' && res.html) {
+        if (typeof window.__ctvOpenModal === 'function') window.__ctvOpenModal(title);
+        var f = document.getElementById('player-frame');
+        if (f) {
+          f.classList.remove('hidden');
+          f.srcdoc = res.html;
+          f.focus();
+          return;
+        }
+      }
+
+      // Fallback al reproductor original si no se pudo extraer
+      if (typeof window.__ctvOrigKh === 'function') {
+        window.__ctvOrigKh(rawUrl, title, serverName, slug, resumeKey);
+      }
+    });
+
+    return true;
+  };
+})();
+
+/* ============================================================================
+ * CTV: COMPROBADOR MULTIPLATAFORMA DE ACTUALIZACIONES DESDE GITHUB RELEASES
+ * ============================================================================ */
 (function () {
   var GITHUB_LATEST_URL = 'https://api.github.com/repos/Demon11701/CTV-Desktop/releases/latest';
   var ALTSTORE_REPO_URL = 'https://raw.githubusercontent.com/Demon11701/CTV-Desktop/main/altstore-repo.json';
-  var CURRENT_VERSION = window.CTV_APP_VERSION || '1.5.0';
+  var CURRENT_VERSION = window.CTV_APP_VERSION || '1.6.0';
   var latestReleaseData = null;
 
   function parseSemver(v) {

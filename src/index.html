@@ -73,6 +73,13 @@
           <span class="menu-label">Series</span>
         </button>
 
+        <button class="menu-item focusable" data-section="anime" tabindex="0">
+          <span class="menu-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>
+          </span>
+          <span class="menu-label">Anime</span>
+        </button>
+
         <button class="menu-item focusable" data-section="favorites" tabindex="0">
           <span class="menu-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.5l2.9 6.2 6.6.7-5 4.5 1.4 6.6L12 17l-5.9 3.5 1.4-6.6-5-4.5 6.6-.7z"/></svg>
@@ -159,9 +166,10 @@
     <div class="player-bar" id="player-bar">
       <button id="player-back" class="btn focusable" tabindex="0">◀ Volver</button>
       <span id="player-title">Reproduciendo…</span>
+      <button id="player-subs" class="btn focusable hidden" tabindex="0" title="Subtítulos">💬 Subtítulos</button>
       <button id="player-fav" class="btn focusable" tabindex="0" title="Favorito">☆</button>
     </div>
-    <iframe id="player-frame" class="player-frame hidden" allowfullscreen allow="autoplay; fullscreen; encrypted-media; picture-in-picture"></iframe>
+    <iframe id="player-frame" class="player-frame hidden" sandbox="allow-scripts allow-same-origin allow-forms allow-presentation" referrerpolicy="origin" allowfullscreen allow="autoplay; fullscreen; encrypted-media; picture-in-picture"></iframe>
     <video id="player-video" class="player-frame hidden" controls playsinline preload="auto"></video>
   </div>
 

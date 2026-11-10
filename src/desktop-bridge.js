@@ -4,7 +4,7 @@
  * compatibility and storage persistence on Desktop (Linux/Windows) and iOS.
  */
 (function () {
-  window.CTV_APP_VERSION = '1.5.0';
+  window.CTV_APP_VERSION = '1.6.0';
 
   // If running inside the native Android/Smart TV APK where MainActivity already injected AndroidBridge, keep it intact
   if (window.AndroidBridge && typeof window.AndroidBridge.playChannelFull === 'function') {
@@ -40,7 +40,7 @@
       return 5;
     },
     getAppVersionName: function () {
-      return '1.5.0';
+      return '1.6.0';
     },
     canRequestInstalls: function () {
       return false;

@@ -1,6 +1,7 @@
 const { app, BrowserWindow, session, shell } = require('electron');
 const path = require('path');
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 
 const USER_AGENT =
@@ -47,6 +48,7 @@ const AD_DOMAINS = [
   'adsafeprotected.com',
   'adsco.re',
   'adservice.google.com',
+  'adskeeper.co.uk',
   'adskeeper.com',
   'adspyglass.com',
   'adsrvr.org',
@@ -54,6 +56,7 @@ const AD_DOMAINS = [
   'adtng.com',
   'adxxx.com',
   'amazon-adsystem.com',
+  'ay.delivery',
   'bet365.com',
   '1xbet.com',
   'bidgear.com',
@@ -63,6 +66,7 @@ const AD_DOMAINS = [
   'chaturbate.com',
   'clickadu.com',
   'clickadu.net',
+  'clickaine.com',
   'connatix.com',
   'cpmrevenuegate.com',
   'criteo.com',
@@ -85,6 +89,7 @@ const AD_DOMAINS = [
   'hilltopads.net',
   'histats.com',
   'juicyads.com',
+  'kadam.net',
   'livejasmin.com',
   'mc.yandex.ru',
   'media.net',
@@ -103,7 +108,9 @@ const AD_DOMAINS = [
   'popads.com',
   'popads.net',
   'popcash.net',
+  'popmyads.com',
   'popunderjs.com',
+  'primis.tech',
   'profitableratecpm.com',
   'propellerads.com',
   'pubmatic.com',
@@ -111,6 +118,7 @@ const AD_DOMAINS = [
   'realsrv.com',
   'revcontent.com',
   'richpush.co',
+  'rollerads.com',
   'rubiconproject.com',
   'sharethrough.com',
   'smartadserver.com',
@@ -122,17 +130,20 @@ const AD_DOMAINS = [
   'trafficstars.com',
   'tsyndicate.com',
   'tsyndicate.net',
+  'vi.ai',
   'vidoomy.com',
   'wpadmngr.com',
   'yllix.com'
 ];
 
 const AD_PATH_PATTERNS = [
-  /\/pop(?:under)?\.js(\?|$)/i,
-  /\/ad(?:s|server|manager|vast)?\.js(\?|$)/i,
+  /\/pop(?:under|up)?\.js(\?|$)/i,
+  /\/ad(?:s|server|manager|vast|block|loader)?\.js(\?|$)/i,
   /\/vast\.xml(\?|$)/i,
   /\/nativeads\//i,
-  /\/popunder\//i
+  /\/popunder\//i,
+  /\/clickunder\//i,
+  /\/banner(?:s|ad)?\.js(\?|$)/i
 ];
 
 function isAdUrl(rawUrl) {
@@ -158,40 +169,59 @@ function isAdUrl(rawUrl) {
   return false;
 }
 
-// In-frame cosmetic & scriptlet ad-shield (extracted from CTV.apk + overlay killer)
+// In-frame cosmetic & scriptlet ad-shield (extracted from CTV.apk + aggressive click-hijack killer)
 const EMBED_ADBLOCK_SCRIPT = `
 (function() {
   if (window.__pjAd) return;
   window.__pjAd = 1;
   try {
-    window.open = function() { return null; };
-    Object.defineProperty(window, 'open', { value: function() { return null; }, writable: false, configurable: false });
+    const noop = function() { return null; };
+    window.open = noop;
+    Object.defineProperty(window, 'open', { value: noop, writable: false, configurable: false });
+    window.alert = function() {};
+    window.confirm = function() { return false; };
+    window.prompt = function() { return null; };
+  } catch (e) {}
+
+  // Intercept window-level click-hijackers that try to open popups on first click
+  try {
+    window.addEventListener('click', function(ev) {
+      var t = ev.target;
+      if (t && t.closest) {
+        var a = t.closest('a');
+        if (a && (a.target === '_blank' || (a.href && !a.href.startsWith('javascript:') && a.hostname !== location.hostname))) {
+          ev.stopImmediatePropagation();
+          ev.preventDefault();
+          a.remove();
+        }
+      }
+    }, true);
   } catch (e) {}
 
   function cleanOverlaysAndSkipAds() {
     try {
       var d = document;
       // 1. Remove invisible click-hijack overlays and ad iframes/anchors
-      var candidates = d.querySelectorAll('a[target="_blank"], div, ins, iframe');
+      var candidates = d.querySelectorAll('a[target="_blank"], div, ins, iframe, aside');
       for (var j = 0; j < candidates.length; j++) {
         var el = candidates[j];
         try {
-          if (el.tagName === 'VIDEO' || el.querySelector('video')) continue;
+          if (el.tagName === 'VIDEO' || el.querySelector('video') || el.id === 'player') continue;
           var style = window.getComputedStyle(el);
           var z = parseInt(style.zIndex, 10) || 0;
           var pos = style.position;
-          if ((pos === 'fixed' || pos === 'absolute') && z > 9999) {
+          if ((pos === 'fixed' || pos === 'absolute') && z > 900) {
             var rect = el.getBoundingClientRect();
-            if (rect.width >= window.innerWidth * 0.7 && rect.height >= window.innerHeight * 0.7) {
+            if (rect.width >= window.innerWidth * 0.65 && rect.height >= window.innerHeight * 0.65) {
               var op = parseFloat(style.opacity);
               var bg = style.backgroundColor || '';
-              if (el.tagName === 'A' || op < 0.15 || bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') {
+              if (el.tagName === 'A' || el.tagName === 'IFRAME' || op < 0.2 || bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') {
                 el.remove();
                 continue;
               }
             }
           }
-          if (el.tagName === 'A' && el.target === '_blank' && (pos === 'fixed' || pos === 'absolute')) {
+          if (el.tagName === 'A' && (el.target === '_blank' || pos === 'fixed' || pos === 'absolute') && z > 10) {
             el.remove();
           }
         } catch (e2) {}
@@ -202,7 +232,7 @@ const EMBED_ADBLOCK_SCRIPT = `
       if (vs.length) {
         var b = d.body, t = b ? (b.innerText || '').toLowerCase() : '';
         ad = (t.indexOf('anuncio') >= 0 && (t.indexOf('saltar') >= 0 || t.indexOf('terminar') >= 0)) ||
-             (t.indexOf('skip ad') >= 0);
+             (t.indexOf('skip ad') >= 0) || (t.indexOf('advertisement') >= 0);
       }
       for (var i = 0; i < vs.length; i++) {
         var v = vs[i];
@@ -240,7 +270,7 @@ const EMBED_ADBLOCK_SCRIPT = `
     } catch (e) {}
   }
 
-  setInterval(cleanOverlaysAndSkipAds, 600);
+  setInterval(cleanOverlaysAndSkipAds, 500);
   cleanOverlaysAndSkipAds();
 })();
 `;
@@ -248,12 +278,161 @@ const EMBED_ADBLOCK_SCRIPT = `
 let mainWindow = null;
 let localServer = null;
 
+function proxyFetchRequest(targetUrl, options = {}, redirectCount = 0) {
+  return new Promise((resolve, reject) => {
+    if (redirectCount > 6) {
+      reject(new Error('Too many redirects'));
+      return;
+    }
+    try {
+      const parsed = new URL(targetUrl);
+      const client = parsed.protocol === 'https:' ? https : http;
+      const method = (options.method || 'GET').toUpperCase();
+      const ref = options.referer || 'https://pelisjuanita.com/';
+      let refOrigin = 'https://pelisjuanita.com';
+      try {
+        refOrigin = new URL(ref).origin;
+      } catch {}
+
+      const reqHeaders = {
+        'User-Agent': USER_AGENT,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+        'Referer': ref,
+        'Origin': refOrigin,
+        'Sec-Fetch-Dest': 'iframe',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'cross-site',
+        ...(options.headers || {})
+      };
+
+      const bodyBuf = options.body ? Buffer.from(options.body, 'utf-8') : null;
+      if (bodyBuf) {
+        reqHeaders['Content-Length'] = bodyBuf.length;
+      }
+
+      const req = client.request(
+        parsed,
+        {
+          method,
+          headers: reqHeaders,
+          timeout: 12000,
+          rejectUnauthorized: false
+        },
+        (res) => {
+          if (
+            [301, 302, 303, 307, 308].includes(res.statusCode) &&
+            res.headers.location
+          ) {
+            const nextUrl = new URL(res.headers.location, targetUrl).toString();
+            res.resume();
+            proxyFetchRequest(
+              nextUrl,
+              { ...options, method: res.statusCode === 303 ? 'GET' : method, body: res.statusCode === 303 ? null : options.body },
+              redirectCount + 1
+            )
+              .then(resolve)
+              .catch(reject);
+            return;
+          }
+
+          const chunks = [];
+          res.on('data', (c) => chunks.push(c));
+          res.on('end', () => {
+            const body = Buffer.concat(chunks).toString('utf-8');
+            resolve({
+              status: res.statusCode || 200,
+              finalUrl: targetUrl,
+              contentType: res.headers['content-type'] || 'text/plain; charset=utf-8',
+              body
+            });
+          });
+        }
+      );
+
+      req.on('timeout', () => {
+        req.destroy(new Error('Request timeout'));
+      });
+      req.on('error', reject);
+      if (bodyBuf) {
+        req.write(bodyBuf);
+      }
+      req.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
 function startLocalServer(rootDir) {
   return new Promise((resolve) => {
-    const server = http.createServer((req, res) => {
+    const server = http.createServer(async (req, res) => {
       try {
         const parsedUrl = new URL(req.url, 'http://127.0.0.1');
         let pathname = decodeURIComponent(parsedUrl.pathname);
+
+        // Local proxy endpoint for Referer-protected embeds & stream extractors (e.g. seriesplayer.fortamomar.workers.dev)
+        if (pathname === '/__ctv_proxy') {
+          if (req.method === 'OPTIONS') {
+            res.writeHead(204, {
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+              'Access-Control-Allow-Headers': '*'
+            });
+            res.end();
+            return;
+          }
+          const targetUrl = parsedUrl.searchParams.get('url');
+          const ref = parsedUrl.searchParams.get('ref') || 'https://pelisjuanita.com/';
+          const method = parsedUrl.searchParams.get('method') || req.method || 'GET';
+          const contentType = parsedUrl.searchParams.get('ct') || '';
+          const bodyParam = parsedUrl.searchParams.get('body') || '';
+          const rawMode = parsedUrl.searchParams.get('raw') === '1';
+
+          if (!targetUrl) {
+            res.writeHead(400, { 'Access-Control-Allow-Origin': '*' });
+            res.end('Missing url');
+            return;
+          }
+
+          const extraHeaders = {};
+          if (contentType) {
+            extraHeaders['Content-Type'] = contentType;
+          }
+
+          try {
+            const result = await proxyFetchRequest(targetUrl, {
+              method,
+              referer: ref,
+              body: bodyParam || null,
+              headers: extraHeaders
+            });
+
+            if (rawMode) {
+              res.writeHead(result.status, {
+                'Content-Type': result.contentType,
+                'Access-Control-Allow-Origin': '*',
+                'Cache-Control': 'no-store'
+              });
+              res.end(result.body);
+            } else {
+              res.writeHead(200, {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Access-Control-Allow-Origin': '*',
+                'Cache-Control': 'no-store'
+              });
+              res.end(JSON.stringify(result));
+            }
+          } catch (e) {
+            res.writeHead(502, {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Access-Control-Allow-Origin': '*'
+            });
+            res.end(JSON.stringify({ status: 502, error: String(e.message || e), body: '' }));
+          }
+          return;
+        }
+
         if (pathname === '/' || pathname === '') {
           pathname = '/index.html';
         }
@@ -303,12 +482,24 @@ function configureSessionSecurityAndAdblock() {
     callback({ cancel: false });
   });
 
-  // 2. Clean Mobile User-Agent & Header Normalizer
+  // 2. Clean Mobile User-Agent & Referer Spoofing for PelisJuanita / SeriesPlayer
   session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
     const headers = { ...details.requestHeaders };
     headers['User-Agent'] = USER_AGENT;
 
-    // Strip Chromium/Electron Client Hints and local Origin/Referer so Cloudflare & CDNs do not block requests
+    const reqUrl = details.url || '';
+    const isLocalRequest = reqUrl.startsWith('http://127.0.0.1') || reqUrl.startsWith('file://');
+    const needsPjReferer =
+      reqUrl.includes('workers.dev') ||
+      reqUrl.includes('seriesplayer') ||
+      reqUrl.includes('pelisplayer') ||
+      reqUrl.includes('pelisjuanita.com') ||
+      reqUrl.includes('flixlat.com') ||
+      reqUrl.includes('playspelis.com') ||
+      reqUrl.includes('onfilom.com') ||
+      reqUrl.includes('solo-latino.com') ||
+      reqUrl.includes('321moviesfree.com');
+
     for (const key of Object.keys(headers)) {
       const lower = key.toLowerCase();
       if (lower.startsWith('sec-ch-ua') || lower === 'x-requested-with') {
@@ -324,7 +515,40 @@ function configureSessionSecurityAndAdblock() {
       }
     }
 
+    if (!isLocalRequest) {
+      if (needsPjReferer) {
+        headers['Referer'] = 'https://pelisjuanita.com/';
+        if (reqUrl.includes('workers.dev')) {
+          headers['Sec-Fetch-Dest'] = 'iframe';
+          headers['Sec-Fetch-Mode'] = 'navigate';
+          headers['Sec-Fetch-Site'] = 'cross-site';
+        }
+      } else if (!headers['Referer'] && !headers['referer'] && details.resourceType === 'subFrame') {
+        headers['Referer'] = 'https://pelisjuanita.com/';
+      }
+    }
+
     callback({ requestHeaders: headers });
+  });
+
+  // 3. Relax X-Frame-Options & ensure CORS for video streams and subtitle tracks
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const responseHeaders = { ...(details.responseHeaders || {}) };
+    for (const key of Object.keys(responseHeaders)) {
+      const lower = key.toLowerCase();
+      if (lower === 'x-frame-options') {
+        delete responseHeaders[key];
+      } else if (lower === 'content-security-policy') {
+        responseHeaders[key] = responseHeaders[key].map((v) =>
+          v.replace(/frame-ancestors[^;]*;?/gi, '')
+        );
+      }
+    }
+    const u = (details.url || '').toLowerCase();
+    if (u.includes('.m3u8') || u.includes('.ts') || u.includes('.vtt') || u.includes('.srt') || u.includes('workers.dev')) {
+      responseHeaders['Access-Control-Allow-Origin'] = ['*'];
+    }
+    callback({ responseHeaders });
   });
 }
 
@@ -419,7 +643,7 @@ app.whenReady().then(() => {
   });
 });
 
-app.on('window-all-closed', () => {
+app.windowAllClosedHandler = () => {
   if (localServer) {
     try {
       localServer.close();
@@ -428,4 +652,6 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
-});
+};
+
+app.on('window-all-closed', app.windowAllClosedHandler);
