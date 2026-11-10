@@ -207,7 +207,7 @@
     function serverRank(s) {
       var n = ((s && (s.server_name || s.ServerName)) || '').toUpperCase();
       var u = ((s && (s.url || s.link)) || '').toLowerCase();
-      if (n.indexOf('DIRECTO') >= 0 || n.indexOf('PELISPLAYER') >= 0 || n.indexOf('SERIESPLAYER') >= 0) return 100;
+      if (n.indexOf('PELISJUANITA') >= 0 || n.indexOf('DIRECTO') >= 0 || n.indexOf('PELISPLAYER') >= 0 || n.indexOf('SERIESPLAYER') >= 0) return 100;
       if (n.indexOf('VSEMBED') >= 0 || u.indexOf('vsembed.su') >= 0) return 96;
       if (n.indexOf('VIDSRC') >= 0 || u.indexOf('vidsrc') >= 0) return 95;
       if (n.indexOf('VIDLINK') >= 0 || u.indexOf('vidlink') >= 0) return 94;
@@ -236,6 +236,7 @@
       });
 
       spServers.forEach(function (orig) {
+        orig.server_name = 'PELISJUANITA (DIRECTO)';
         var origUrl = orig.url || orig.link || '';
         SERIESPLAYER_MIRRORS.forEach(function (m) {
           var mirroredUrl = appendParam(origUrl, 'ctv_cdn', m.host);
@@ -338,6 +339,7 @@
       });
 
       spServers.forEach(function (orig) {
+        orig.server_name = 'PELISJUANITA (DIRECTO)';
         var origUrl = orig.url || orig.link || '';
         SERIESPLAYER_MIRRORS.forEach(function (m) {
           var mirroredUrl = appendParam(origUrl, 'ctv_cdn', m.host);

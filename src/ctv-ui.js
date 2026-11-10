@@ -466,7 +466,7 @@
   function serverRank(s) {
     var n = ((s && (s.server_name || s.ServerName)) || '').toUpperCase();
     var u = ((s && (s.url || s.link)) || '').toLowerCase();
-    if (n.indexOf('DIRECTO') >= 0 || n.indexOf('PELISPLAYER') >= 0 || n.indexOf('SERIESPLAYER') >= 0) return 100;
+    if (n.indexOf('PELISJUANITA') >= 0 || n.indexOf('DIRECTO') >= 0 || n.indexOf('PELISPLAYER') >= 0 || n.indexOf('SERIESPLAYER') >= 0) return 100;
     if (n.indexOf('VSEMBED') >= 0 || u.indexOf('vsembed.su') >= 0) return 96;
     if (n.indexOf('VIDSRC') >= 0 || u.indexOf('vidsrc') >= 0) return 95;
     if (n.indexOf('VIDLINK') >= 0 || u.indexOf('vidlink') >= 0) return 94;
@@ -489,7 +489,7 @@
       if (u) seenUrls.add(u);
     });
 
-    // 1. Expandir SERIESPLAYER con 4 espejos CDN independientes sin anuncios
+    // 1. Mantener servidores originales de PelisJuanita y expandir con 4 espejos CDN sin anuncios
     var spServers = list.filter(function (s) {
       var u = (s && (s.url || s.link)) || '';
       return u.indexOf('seriesplayer.fortamomar.workers.dev') >= 0 || u.indexOf('pelisplayer.fortamomar.workers.dev') >= 0;
@@ -499,7 +499,7 @@
       var baseUrl = sp.url || sp.link || '';
       var audio = sp.audio || sp.idioma || 'SUBTITULADA';
       var quality = sp.quality || sp.calidad || 'HD';
-      sp.server_name = 'SERIESPLAYER · DIRECTO';
+      sp.server_name = 'PELISJUANITA (DIRECTO)';
 
       SERIESPLAYER_MIRRORS.forEach(function (m) {
         var mirrorUrl = addParam(baseUrl, 'ctv_cdn', m.host);
@@ -602,7 +602,7 @@
       if (u) seenUrls.add(u);
     });
 
-    // 1. Expandir PELISPLAYER con 4 espejos CDN directos sin anuncios
+    // 1. Mantener servidores originales de PelisJuanita y expandir con 4 espejos CDN directos sin anuncios
     var spServers = list.filter(function (s) {
       var u = (s && (s.url || s.link)) || '';
       return u.indexOf('seriesplayer.fortamomar.workers.dev') >= 0 || u.indexOf('pelisplayer.fortamomar.workers.dev') >= 0;
@@ -612,7 +612,7 @@
       var baseUrl = sp.url || sp.link || '';
       var idioma = sp.idioma || sp.audio || 'LATINO';
       var calidad = sp.calidad || sp.quality || 'HD';
-      sp.server_name = 'PELISPLAYER · DIRECTO';
+      sp.server_name = 'PELISJUANITA (DIRECTO)';
 
       SERIESPLAYER_MIRRORS.forEach(function (m) {
         var mirrorUrl = addParam(baseUrl, 'ctv_cdn', m.host);
