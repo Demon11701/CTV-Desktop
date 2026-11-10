@@ -1361,6 +1361,20 @@
       pFrame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-presentation');
       pFrame.setAttribute('referrerpolicy', 'origin');
     }
+
+    // Adaptar textos largos del menú en pantallas estrechas para que las 7 pestañas nunca se corten
+    function adaptResponsiveLabels() {
+      try {
+        var compact = window.innerWidth <= 860 || (window.innerHeight >= window.innerWidth && window.innerWidth <= 1024);
+        var liveLbl = document.querySelector('.menu-item[data-section="live"] .menu-label');
+        var agendaLbl = document.querySelector('.menu-item[data-section="agenda"] .menu-label');
+        if (liveLbl) liveLbl.textContent = compact ? 'En vivo' : 'TV en vivo';
+        if (agendaLbl) agendaLbl.textContent = compact ? 'Agenda' : 'Agenda deportiva';
+      } catch (e) {}
+    }
+    window.addEventListener('resize', adaptResponsiveLabels);
+    window.addEventListener('orientationchange', adaptResponsiveLabels);
+    adaptResponsiveLabels();
   } catch (e) {}
 
   function runOtaCode(code) {

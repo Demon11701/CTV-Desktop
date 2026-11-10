@@ -701,8 +701,8 @@ async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 720,
-    minWidth: 800,
-    minHeight: 450,
+    minWidth: 320,
+    minHeight: 300,
     title: 'CTV',
     backgroundColor: '#000000',
     autoHideMenuBar: true,
