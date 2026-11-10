@@ -3,6 +3,8 @@ const path = require('path');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
+const os = require('os');
+const { spawn } = require('child_process');
 
 const USER_AGENT =
   'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36';
@@ -277,6 +279,119 @@ const EMBED_ADBLOCK_SCRIPT = `
 
 let mainWindow = null;
 let localServer = null;
+let selfUpdateState = { state: 'idle', percent: 0, error: '' };
+
+function getSelfExecutablePath() {
+  if (process.env.APPIMAGE) return process.env.APPIMAGE;
+  if (process.env.PORTABLE_EXECUTABLE_FILE) return process.env.PORTABLE_EXECUTABLE_FILE;
+  if (app.isPackaged) return process.execPath;
+  return '';
+}
+
+function downloadFileWithProgress(url, destPath, onProgress, redirectCount = 0) {
+  return new Promise((resolve, reject) => {
+    if (redirectCount > 8) {
+      reject(new Error('Demasiadas redirecciones'));
+      return;
+    }
+    const parsed = new URL(url);
+    const client = parsed.protocol === 'https:' ? https : http;
+    const req = client.get(
+      parsed,
+      {
+        headers: { 'User-Agent': USER_AGENT, Accept: '*/*' },
+        timeout: 30000
+      },
+      (res) => {
+        if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+          const nextUrl = new URL(res.headers.location, url).toString();
+          res.resume();
+          downloadFileWithProgress(nextUrl, destPath, onProgress, redirectCount + 1)
+            .then(resolve)
+            .catch(reject);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          res.resume();
+          reject(new Error('HTTP ' + res.statusCode));
+          return;
+        }
+        const total = parseInt(res.headers['content-length'] || '0', 10);
+        let received = 0;
+        const fileStream = fs.createWriteStream(destPath);
+        res.on('data', (chunk) => {
+          received += chunk.length;
+          if (total > 0 && onProgress) {
+            onProgress(Math.min(99, Math.round((received * 100) / total)));
+          }
+        });
+        res.pipe(fileStream);
+        fileStream.on('finish', () => {
+          fileStream.close(() => resolve(destPath));
+        });
+        fileStream.on('error', (err) => {
+          try { fs.unlinkSync(destPath); } catch {}
+          reject(err);
+        });
+      }
+    );
+    req.on('error', (err) => {
+      try { fs.unlinkSync(destPath); } catch {}
+      reject(err);
+    });
+  });
+}
+
+function startDesktopSelfUpdate(downloadUrl) {
+  if (selfUpdateState.state === 'downloading') return;
+  const targetExe = getSelfExecutablePath();
+  if (!targetExe) {
+    selfUpdateState = { state: 'error', percent: 0, error: 'Modo desarrollo (sin ejecutable empaquetado)' };
+    return;
+  }
+
+  const tempFile = targetExe + '.update-tmp';
+  selfUpdateState = { state: 'downloading', percent: 1, error: '' };
+
+  downloadFileWithProgress(downloadUrl, tempFile, (pct) => {
+    selfUpdateState.percent = pct;
+  })
+    .then(() => {
+      selfUpdateState = { state: 'restarting', percent: 100, error: '' };
+      if (process.platform === 'win32') {
+        const batPath = path.join(os.tmpdir(), 'ctv_self_update_' + Date.now() + '.bat');
+        const batContent = [
+          '@echo off',
+          'ping 127.0.0.1 -n 3 > nul',
+          `move /y "${tempFile}" "${targetExe}" > nul`,
+          `start "" "${targetExe}"`,
+          'del "%~f0"'
+        ].join('\r\n');
+        fs.writeFileSync(batPath, batContent, 'utf-8');
+        spawn('cmd.exe', ['/c', batPath], {
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: true
+        }).unref();
+        setTimeout(() => app.quit(), 400);
+      } else {
+        fs.chmodSync(tempFile, 0o755);
+        fs.renameSync(tempFile, targetExe);
+        spawn(targetExe, [], {
+          detached: true,
+          stdio: 'ignore'
+        }).unref();
+        setTimeout(() => app.quit(), 400);
+      }
+    })
+    .catch((err) => {
+      selfUpdateState = {
+        state: 'error',
+        percent: 0,
+        error: String((err && err.message) || err)
+      };
+    });
+}
 
 function proxyFetchRequest(targetUrl, options = {}, redirectCount = 0) {
   return new Promise((resolve, reject) => {
@@ -372,6 +487,33 @@ function startLocalServer(rootDir) {
         let pathname = decodeURIComponent(parsedUrl.pathname);
 
         // Local proxy endpoint for Referer-protected embeds & stream extractors (e.g. seriesplayer.fortamomar.workers.dev)
+        if (pathname === '/__ctv_self_update') {
+          const dlUrl = parsedUrl.searchParams.get('url');
+          if (!dlUrl) {
+            res.writeHead(400, { 'Access-Control-Allow-Origin': '*' });
+            res.end(JSON.stringify({ ok: false, error: 'Missing url' }));
+            return;
+          }
+          startDesktopSelfUpdate(dlUrl);
+          res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'no-store'
+          });
+          res.end(JSON.stringify({ ok: true, state: selfUpdateState }));
+          return;
+        }
+
+        if (pathname === '/__ctv_self_update_status') {
+          res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'no-store'
+          });
+          res.end(JSON.stringify(selfUpdateState));
+          return;
+        }
+
         if (pathname === '/__ctv_proxy') {
           if (req.method === 'OPTIONS') {
             res.writeHead(204, {

@@ -1166,11 +1166,53 @@
       if (platform === 'ios') {
         btnInstall.textContent = '⚡ Actualizar en SideStore';
       } else if (platform === 'android') {
-        btnInstall.textContent = '⚡ Descargar APK (' + tag + ')';
+        btnInstall.textContent = '⚡ Actualizar APK (' + tag + ')';
       } else if (platform === 'windows') {
-        btnInstall.textContent = '⚡ Descargar .EXE (' + tag + ')';
+        btnInstall.textContent = '⚡ Auto-actualizar .EXE (' + tag + ')';
       } else {
-        btnInstall.textContent = '⚡ Descargar .AppImage (' + tag + ')';
+        btnInstall.textContent = '⚡ Auto-actualizar .AppImage (' + tag + ')';
+      }
+
+      function triggerDesktopAutoReplace(dlUrl) {
+        if (!dlUrl) return;
+        if (location.hostname !== '127.0.0.1' && location.hostname !== 'localhost') {
+          window.open(dlUrl, '_blank');
+          return;
+        }
+        if (progressWrap) progressWrap.classList.remove('hidden');
+        if (progressLbl) progressLbl.textContent = 'Descargando e instalando automáticamente…';
+        btnInstall.disabled = true;
+
+        fetch('/__ctv_self_update?url=' + encodeURIComponent(dlUrl))
+          .then(function (r) { return r.json(); })
+          .then(function () {
+            var poll = setInterval(function () {
+              fetch('/__ctv_self_update_status')
+                .then(function (r) { return r.json(); })
+                .then(function (st) {
+                  if (!st) return;
+                  var pct = st.percent || 0;
+                  if (progressBar) progressBar.style.width = pct + '%';
+                  if (progressPct) progressPct.textContent = pct + '%';
+                  if (st.state === 'downloading') {
+                    if (progressLbl) progressLbl.textContent = 'Descargando actualización… ' + pct + '%';
+                  } else if (st.state === 'restarting') {
+                    clearInterval(poll);
+                    if (progressLbl) progressLbl.textContent = '¡Actualización lista! Reiniciando CTV…';
+                  } else if (st.state === 'error') {
+                    clearInterval(poll);
+                    btnInstall.disabled = false;
+                    if (progressLbl) progressLbl.textContent = 'Abriendo descarga directa…';
+                    window.open(dlUrl, '_blank');
+                  }
+                })
+                .catch(function () {});
+            }, 400);
+          })
+          .catch(function () {
+            btnInstall.disabled = false;
+            window.open(dlUrl, '_blank');
+          });
       }
 
       btnInstall.onclick = function () {
@@ -1203,12 +1245,12 @@
 
         if (platform === 'windows') {
           var exeUrl = findAssetUrl(assets, '.exe') || release.html_url;
-          if (exeUrl) window.open(exeUrl, '_blank');
+          triggerDesktopAutoReplace(exeUrl);
           return;
         }
 
         var appImageUrl = findAssetUrl(assets, '.AppImage') || release.html_url;
-        if (appImageUrl) window.open(appImageUrl, '_blank');
+        triggerDesktopAutoReplace(appImageUrl);
       };
     }
 
@@ -1264,4 +1306,89 @@
   setTimeout(function () {
     checkGitHubRelease(false);
   }, 3000);
+})();
+
+/* ============================================================================
+ * CTV: AUTO-ACTUALIZADOR EN LA NUBE (OTA LIVE LOADER) SIN REINSTALAR LA APP
+ * Descarga y aplica parches en vivo desde GitHub al abrir la app en cualquier
+ * dispositivo (.exe, .AppImage, .ipa iOS y .apk Android/Smart TV).
+ * ============================================================================ */
+(function () {
+  var OTA_SCRIPT_URL = 'https://raw.githubusercontent.com/Demon11701/CTV-Desktop/main/src/ctv-ota.js';
+  var OTA_CACHE_KEY = 'ctv_ota_live_script_v1';
+
+  // Auto-reparación del DOM por si la plantilla HTML local es de una versión anterior
+  try {
+    var menu = document.querySelector('.menu');
+    if (menu && !menu.querySelector('[data-section="anime"]')) {
+      var favBtn = menu.querySelector('[data-section="favorites"]');
+      var animeBtn = document.createElement('button');
+      animeBtn.className = 'menu-item focusable';
+      animeBtn.setAttribute('data-section', 'anime');
+      animeBtn.tabIndex = 0;
+      animeBtn.innerHTML =
+        '<span class="menu-icon" aria-hidden="true">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>' +
+        '</span><span class="menu-label">Anime</span>';
+      animeBtn.addEventListener('click', function () {
+        document.querySelectorAll('.menu-item').forEach(function (s) { s.classList.remove('active'); });
+        animeBtn.classList.add('active');
+        var si = document.getElementById('search-input');
+        var sc = document.getElementById('search-clear');
+        if (si) si.value = '';
+        if (sc) sc.classList.add('hidden');
+        if (window.ctvOpenAnimeSection) window.ctvOpenAnimeSection();
+      });
+      if (favBtn) menu.insertBefore(animeBtn, favBtn);
+      else menu.appendChild(animeBtn);
+    }
+
+    var pBar = document.getElementById('player-bar');
+    if (pBar && !document.getElementById('player-subs')) {
+      var pFav = document.getElementById('player-fav');
+      var subBtn = document.createElement('button');
+      subBtn.id = 'player-subs';
+      subBtn.className = 'btn focusable hidden';
+      subBtn.tabIndex = 0;
+      subBtn.title = 'Subtítulos';
+      subBtn.textContent = '💬 Subtítulos';
+      if (pFav) pBar.insertBefore(subBtn, pFav);
+      else pBar.appendChild(subBtn);
+    }
+
+    var pFrame = document.getElementById('player-frame');
+    if (pFrame && !pFrame.getAttribute('sandbox')) {
+      pFrame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-presentation');
+      pFrame.setAttribute('referrerpolicy', 'origin');
+    }
+  } catch (e) {}
+
+  function runOtaCode(code) {
+    if (!code || window.__ctvOtaExecuted === code) return;
+    window.__ctvOtaExecuted = code;
+    try {
+      var fn = new Function(code);
+      fn();
+    } catch (e) {
+      console.warn('Error ejecutando OTA:', e);
+    }
+  }
+
+  // 1. Ejecutar caché OTA instantáneamente al arrancar
+  try {
+    var cached = localStorage.getItem(OTA_CACHE_KEY);
+    if (cached) runOtaCode(cached);
+  } catch (e) {}
+
+  // 2. Comprobar y descargar última versión OTA desde GitHub en segundo plano
+  fetch(OTA_SCRIPT_URL + '?t=' + Date.now(), { cache: 'no-store' })
+    .then(function (r) { return r.ok ? r.text() : ''; })
+    .then(function (remoteCode) {
+      if (!remoteCode || remoteCode.indexOf('CTV_OTA_VERSION') < 0) return;
+      try {
+        localStorage.setItem(OTA_CACHE_KEY, remoteCode);
+      } catch (e) {}
+      runOtaCode(remoteCode);
+    })
+    .catch(function () {});
 })();
