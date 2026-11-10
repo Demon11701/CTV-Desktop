@@ -43,6 +43,7 @@ const AD_DOMAINS = [
   'a-ads.com',
   'acscdn.com',
   'ad-maven.com',
+  'adangle.online',
   'adcash.com',
   'adform.net',
   'admaven.com',
@@ -69,9 +70,11 @@ const AD_DOMAINS = [
   'clickadu.com',
   'clickadu.net',
   'clickaine.com',
+  'cloudnestra.com',
   'connatix.com',
   'cpmrevenuegate.com',
   'criteo.com',
+  'cvt-s1.adangle.online',
   'displayformatrevenue.com',
   'doubleclick.net',
   'dtscdn.com',
@@ -83,6 +86,7 @@ const AD_DOMAINS = [
   'exoclick.net',
   'exosrv.com',
   'galaksion.com',
+  'gigaduckgo.com',
   'googleadservices.com',
   'googlesyndication.com',
   'highperformanceformat.com',
@@ -145,7 +149,9 @@ const AD_PATH_PATTERNS = [
   /\/nativeads\//i,
   /\/popunder\//i,
   /\/clickunder\//i,
-  /\/banner(?:s|ad)?\.js(\?|$)/i
+  /\/banner(?:s|ad)?\.js(\?|$)/i,
+  /\/sbx\.js(\?|$)/i,
+  /\/disable-devtool\.js(\?|$)/i
 ];
 
 function isAdUrl(rawUrl) {

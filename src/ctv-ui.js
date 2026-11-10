@@ -18,6 +18,112 @@
     }
   } catch (e) {}
 
+  // Escudo anti-caídas y bypass de límite diario (100 vistas) de PelisJuanita
+  try {
+    window.__ctvCatalog = window.__ctvCatalog || {};
+    var _nativeFetch = window.fetch;
+    window.fetch = async function (resource, init) {
+      var url = typeof resource === 'string' ? resource : (resource && resource.url) || '';
+
+      // 1. Guardar metadatos en catálogo cada vez que se listen películas o series
+      var isCatalogList = url.indexOf('/app/movies.php') >= 0 || url.indexOf('/app/series.php') >= 0 || url.indexOf('/app/home.php') >= 0 || url.indexOf('/app/buscar.php') >= 0;
+      if (isCatalogList && url.indexOf('slug=') < 0) {
+        try {
+          var resp = await _nativeFetch.apply(this, arguments);
+          var clone = resp.clone();
+          clone.json().then(function (j) {
+            if (!j) return;
+            var items = Array.isArray(j.datos) ? j.datos : (Array.isArray(j) ? j : []);
+            if (Array.isArray(j.sections)) {
+              j.sections.forEach(function (sec) {
+                if (Array.isArray(sec.data)) items = items.concat(sec.data);
+              });
+            }
+            items.forEach(function (it) {
+              if (it && it.slug) {
+                window.__ctvCatalog[it.slug] = Object.assign(window.__ctvCatalog[it.slug] || {}, it);
+              }
+            });
+          }).catch(function () {});
+          return resp;
+        } catch (e) {}
+      }
+
+      // 2. Interceptar detalle de película si PelisJuanita responde con error de límite diario (100 vistas) o cae
+      if (url.indexOf('/app/movies.php?') >= 0 && url.indexOf('slug=') >= 0) {
+        try {
+          var mResp = await _nativeFetch.apply(this, arguments);
+          var mClone = mResp.clone();
+          var mJson = await mClone.json().catch(function () { return null; });
+          if (mJson && mJson.status !== 'error' && mJson.datos) {
+            if (mJson.datos.slug) window.__ctvCatalog[mJson.datos.slug] = mJson.datos;
+            return mResp;
+          }
+        } catch (e) {}
+
+        var slugMatch = url.match(/[?&]slug=([^&]+)/);
+        var mSlug = slugMatch ? decodeURIComponent(slugMatch[1]) : '';
+        var cachedMovie = window.__ctvCatalog[mSlug];
+        if (cachedMovie) {
+          var synthMovie = Object.assign({}, cachedMovie, {
+            servidores: []
+          });
+          return new Response(JSON.stringify({ status: 'ok', datos: synthMovie }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
+
+      // 3. Interceptar detalle de serie si PelisJuanita responde con error de límite diario o cae
+      if (url.indexOf('/app/series.php?') >= 0 && url.indexOf('slug=') >= 0 && url.indexOf('&t=') < 0) {
+        try {
+          var sResp = await _nativeFetch.apply(this, arguments);
+          var sClone = sResp.clone();
+          var sJson = await sClone.json().catch(function () { return null; });
+          if (sJson && sJson.status !== 'error' && (sJson.datos || sJson.serie || sJson.episodio)) {
+            var sObj = sJson.datos || sJson.serie || sJson.episodio;
+            if (sObj && sObj.slug) window.__ctvCatalog[sObj.slug] = sObj;
+            return sResp;
+          }
+        } catch (e) {}
+
+        var sSlugMatch = url.match(/[?&]slug=([^&]+)/);
+        var sSlug = sSlugMatch ? decodeURIComponent(sSlugMatch[1]) : '';
+        var cachedSerie = window.__ctvCatalog[sSlug];
+        if (cachedSerie) {
+          var synthSerie = Object.assign({}, cachedSerie, {
+            temporadas: cachedSerie.temporadas || cachedSerie.temp || 1,
+            entransmision: cachedSerie.entransmision || 0
+          });
+          return new Response(JSON.stringify({ status: 'ok', datos: synthSerie }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
+
+      // 4. Interceptar servidores de episodios si PelisJuanita falla o no tiene servidores
+      if (url.indexOf('/app/series.php?') >= 0 && url.indexOf('&t=') >= 0 && url.indexOf('&e=') >= 0) {
+        try {
+          var epResp = await _nativeFetch.apply(this, arguments);
+          var epClone = epResp.clone();
+          var epJson = await epClone.json().catch(function () { return null; });
+          if (epJson && epJson.status !== 'error' && Array.isArray(epJson.servidores) && epJson.servidores.length) {
+            return epResp;
+          }
+        } catch (e) {}
+
+        return new Response(JSON.stringify({ status: 'ok', servidores: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      return _nativeFetch.apply(this, arguments);
+    };
+  } catch (e) {}
+
   var content = document.getElementById('content');
   if (!content) return;
   var picks = [], idx = 0, rot = null, deb = null, building = false;
@@ -342,7 +448,8 @@
 })();
 
 /* ============================================================================
- * CTV: ENRIQUECEDOR DE SERVIDORES (SERIES COREANAS, ANIME Y PELÍCULAS)
+ * CTV: ENRIQUECEDOR UNIVERSAL DE SERVIDORES (PELÍCULAS, SERIES, DORAMAS Y ANIME)
+ * Independiente de PelisJuanita: provee espejos CDN y servidores multi-idioma
  * ============================================================================ */
 (function () {
   var SERIESPLAYER_MIRRORS = [
@@ -354,6 +461,24 @@
 
   function addParam(url, key, val) {
     return url + (url.indexOf('?') >= 0 ? '&' : '?') + key + '=' + encodeURIComponent(val);
+  }
+
+  function serverRank(s) {
+    var n = ((s && (s.server_name || s.ServerName)) || '').toUpperCase();
+    var u = ((s && (s.url || s.link)) || '').toLowerCase();
+    if (n.indexOf('DIRECTO') >= 0 || n.indexOf('PELISPLAYER') >= 0 || n.indexOf('SERIESPLAYER') >= 0) return 100;
+    if (n.indexOf('VSEMBED') >= 0 || u.indexOf('vsembed.su') >= 0) return 96;
+    if (n.indexOf('VIDSRC') >= 0 || u.indexOf('vidsrc') >= 0) return 95;
+    if (n.indexOf('VIDLINK') >= 0 || u.indexOf('vidlink') >= 0) return 94;
+    if (n.indexOf('MULTIEMBED') >= 0 || u.indexOf('multiembed') >= 0) return 93;
+    if (n.indexOf('2EMBED') >= 0 || u.indexOf('2embed') >= 0) return 92;
+    if (n.indexOf('NONTONGO') >= 0 || u.indexOf('nontongo') >= 0) return 91;
+    if (u.indexOf('voe.sx') >= 0) return 86;
+    if (u.indexOf('playmogo') >= 0 || u.indexOf('dood') >= 0) return 85;
+    if (u.indexOf('lulustream') >= 0 || u.indexOf('lulust') >= 0) return 84;
+    if (u.indexOf('vibuxer') >= 0 || u.indexOf('streamhg') >= 0 || u.indexOf('streamwish') >= 0) return 83;
+    if (u.indexOf('vidara') >= 0 || u.indexOf('savefiles') >= 0 || u.indexOf('mixdrop') >= 0 || u.indexOf('fastream') >= 0) return 82;
+    return 50;
   }
 
   window.ctvEnrichSeriesServers = function (servers, serieInfo, slug, season, episode) {
@@ -391,9 +516,10 @@
       });
     });
 
-    // 2. Agregar servidores multi-embed internacionales/subtitulados usando TMDbId / IMDbId
-    var tmdbId = serieInfo && (serieInfo.TMDbId || serieInfo.tmdb_id || serieInfo.tmdb);
-    var imdbId = serieInfo && (serieInfo.imdb_id || serieInfo.ImdbId || serieInfo.imdb);
+    // 2. Agregar servidores multi-embed internacionales/subtitulados para TODAS las series
+    var info = serieInfo || (window.__ctvCatalog && window.__ctvCatalog[slug]) || {};
+    var tmdbId = info.TMDbId || info.tmdb_id || info.tmdb;
+    var imdbId = info.imdb_id || info.ImdbId || info.imdb;
     var t = season || 1;
     var e = episode || 1;
 
@@ -444,6 +570,12 @@
           url: 'https://www.2embed.cc/embedtv/' + encodeURIComponent(tmdbId) + '&s=' + t + '&e=' + e,
           audio: 'SUBTITULADA',
           quality: 'HD'
+        },
+        {
+          server_name: 'NONTONGO HD',
+          url: 'https://www.nontongo.win/embed/tv/' + encodeURIComponent(tmdbId) + '/' + t + '/' + e,
+          audio: 'SUBTITULADA',
+          quality: 'HD'
         }
       );
     }
@@ -453,6 +585,10 @@
         seenUrls.add(cand.url);
         list.push(cand);
       }
+    });
+
+    list.sort(function (a, b) {
+      return serverRank(b) - serverRank(a);
     });
 
     return list;
@@ -466,6 +602,7 @@
       if (u) seenUrls.add(u);
     });
 
+    // 1. Expandir PELISPLAYER con 4 espejos CDN directos sin anuncios
     var spServers = list.filter(function (s) {
       var u = (s && (s.url || s.link)) || '';
       return u.indexOf('seriesplayer.fortamomar.workers.dev') >= 0 || u.indexOf('pelisplayer.fortamomar.workers.dev') >= 0;
@@ -492,50 +629,73 @@
       });
     });
 
-    var tmdbId = movieInfo && (movieInfo.TMDbId || movieInfo.tmdb_id || movieInfo.tmdb);
-    var imdbId = movieInfo && (movieInfo.imdb_id || movieInfo.ImdbId || movieInfo.imdb);
-    var genre = String((movieInfo && movieInfo.genero) || '').toLowerCase();
-    var isAnimeOrFew = genre.indexOf('anime') >= 0 || genre.indexOf('animac') >= 0 || list.length <= 3;
+    // 2. Agregar servidores multi-embed internacionales para TODAS las películas (sin límite de catálogo)
+    var info = movieInfo || (movieInfo && movieInfo.slug && window.__ctvCatalog && window.__ctvCatalog[movieInfo.slug]) || {};
+    var tmdbId = info.TMDbId || info.tmdb_id || info.tmdb;
+    var imdbId = info.imdb_id || info.ImdbId || info.imdb;
 
-    if (isAnimeOrFew && (tmdbId || imdbId)) {
-      var extras = [];
-      if (imdbId) {
-        extras.push({
-          server_name: 'VSEMBED · MULTI',
-          url: 'https://vsembed.su/embed/movie?imdb=' + encodeURIComponent(imdbId) + '&ds_lang=es',
-          idioma: 'SUBTITULADA',
-          calidad: 'HD'
-        });
-      }
-      if (tmdbId) {
-        extras.push(
-          {
-            server_name: 'VIDSRC PRO',
-            url: 'https://vidsrc.me/embed/movie?tmdb=' + encodeURIComponent(tmdbId) + '&ds_lang=es',
-            idioma: 'SUBTITULADA',
-            calidad: 'HD'
-          },
-          {
-            server_name: 'VIDLINK HD',
-            url: 'https://vidlink.pro/movie/' + encodeURIComponent(tmdbId),
-            idioma: 'SUBTITULADA',
-            calidad: 'FHD'
-          },
-          {
-            server_name: 'MULTIEMBED',
-            url: 'https://multiembed.mov/?video_id=' + encodeURIComponent(tmdbId) + '&tmdb=1',
-            idioma: 'SUBTITULADA',
-            calidad: 'HD'
-          }
-        );
-      }
-      extras.forEach(function (ex) {
-        if (!seenUrls.has(ex.url)) {
-          seenUrls.add(ex.url);
-          list.push(ex);
-        }
+    var extras = [];
+    if (imdbId) {
+      extras.push({
+        server_name: 'VSEMBED · MULTI',
+        url: 'https://vsembed.su/embed/movie?imdb=' + encodeURIComponent(imdbId) + '&ds_lang=es',
+        idioma: 'SUBTITULADA',
+        calidad: 'HD'
+      });
+    } else if (tmdbId) {
+      extras.push({
+        server_name: 'VSEMBED · MULTI',
+        url: 'https://vsembed.su/embed/movie?tmdb=' + encodeURIComponent(tmdbId) + '&ds_lang=es',
+        idioma: 'SUBTITULADA',
+        calidad: 'HD'
       });
     }
+
+    if (tmdbId) {
+      extras.push(
+        {
+          server_name: 'VIDSRC PRO',
+          url: 'https://vidsrc.me/embed/movie?tmdb=' + encodeURIComponent(tmdbId) + '&ds_lang=es',
+          idioma: 'SUBTITULADA',
+          calidad: 'HD'
+        },
+        {
+          server_name: 'VIDLINK HD',
+          url: 'https://vidlink.pro/movie/' + encodeURIComponent(tmdbId),
+          idioma: 'SUBTITULADA',
+          calidad: 'FHD'
+        },
+        {
+          server_name: 'MULTIEMBED',
+          url: 'https://multiembed.mov/?video_id=' + encodeURIComponent(tmdbId) + '&tmdb=1',
+          idioma: 'SUBTITULADA',
+          calidad: 'HD'
+        },
+        {
+          server_name: '2EMBED SERVER',
+          url: 'https://www.2embed.cc/embed/' + encodeURIComponent(tmdbId),
+          idioma: 'SUBTITULADA',
+          calidad: 'HD'
+        },
+        {
+          server_name: 'NONTONGO HD',
+          url: 'https://www.nontongo.win/embed/movie/' + encodeURIComponent(tmdbId),
+          idioma: 'SUBTITULADA',
+          calidad: 'HD'
+        }
+      );
+    }
+
+    extras.forEach(function (ex) {
+      if (!seenUrls.has(ex.url)) {
+        seenUrls.add(ex.url);
+        list.push(ex);
+      }
+    });
+
+    list.sort(function (a, b) {
+      return serverRank(b) - serverRank(a);
+    });
 
     return list;
   };
@@ -708,11 +868,236 @@
     return 'WEBVTT\n\n' + trimmed.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
   }
 
+  async function extractTvf90(rawUrl) {
+    try {
+      var target = rawUrl;
+      if (target.indexOf('eventos.html?r=') >= 0) {
+        var b64 = target.split('eventos.html?r=')[1].split('&')[0];
+        try {
+          target = atob(decodeURIComponent(b64));
+        } catch (e) {}
+      }
+      var target5 = target.replace(/\/(?:[0-9]+|canal)\.php\?/i, '/5.php?');
+      var pageRes = await ctvHttpRequest(target5, { referer: 'https://tvf90.com/' });
+      if (!pageRes.body) return null;
+      var html = pageRes.body;
+      var pbMatch = html.match(/playbackURL\s*=\s*['"](https?:\/\/[^'"]+\.m3u8[^'"]*)['"]/i);
+      if (pbMatch) {
+        return { url: pbMatch[1], type: 'hls', tracks: [] };
+      }
+      var m3u8Match = html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i);
+      if (m3u8Match) {
+        return { url: m3u8Match[0], type: 'hls', tracks: [] };
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function extractDoodStream(rawUrl) {
+    try {
+      var pageRes = await ctvHttpRequest(rawUrl, { referer: 'https://pelisjuanita.com/' });
+      if (!pageRes.body) return null;
+      var html = pageRes.body;
+      var md5Match = html.match(/\/pass_md5\/([a-zA-Z0-9_-]+)/);
+      if (!md5Match) return null;
+      var parsed = new URL(rawUrl);
+      var passUrl = parsed.origin + '/pass_md5/' + md5Match[1];
+      var tokRes = await ctvHttpRequest(passUrl, { referer: rawUrl });
+      if (!tokRes.body) return null;
+      var baseStream = tokRes.body.trim();
+      if (!baseStream) return null;
+      var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      var rnd = '';
+      for (var i = 0; i < 10; i++) rnd += chars.charAt(Math.floor(Math.random() * chars.length));
+      var tokenMatch = passUrl.match(/\/pass_md5\/([^/]+)/);
+      var token = tokenMatch ? tokenMatch[1] : '';
+      var finalMp4 = baseStream + rnd + '?token=' + token + '&expiry=' + Date.now();
+      return { url: finalMp4, type: 'mp4', tracks: [] };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function extractVsembedStream(rawUrl) {
+    try {
+      var parsed = new URL(rawUrl);
+      var tmdbId = parsed.searchParams.get('tmdb') || '';
+      var imdbId = parsed.searchParams.get('imdb') || '';
+      var season = parsed.searchParams.get('season') || parsed.searchParams.get('s') || '';
+      var episode = parsed.searchParams.get('episode') || parsed.searchParams.get('e') || '';
+      var isTv = parsed.pathname.indexOf('/tv') >= 0 || (season && episode);
+
+      var id = imdbId || tmdbId;
+      if (!id) {
+        var parts = parsed.pathname.split('/').filter(Boolean);
+        id = parts[parts.length - 1];
+      }
+      if (!id) return null;
+
+      var vsApiUrl = 'https://vsembed.su/vs_src.php?type=' + (isTv ? 'tv' : 'movie') + '&id=' + encodeURIComponent(id) + '&ds_lang=es';
+      if (isTv && season && episode) {
+        vsApiUrl += '&season=' + encodeURIComponent(season) + '&episode=' + encodeURIComponent(episode);
+      }
+
+      var r1 = await ctvHttpRequest(vsApiUrl, { referer: rawUrl });
+      if (!r1.body) return null;
+      var j1 = JSON.parse(r1.body);
+      if (!j1 || !j1.src) return null;
+      var src1 = j1.src;
+      if (src1.indexOf('//') === 0) src1 = 'https:' + src1;
+
+      var r2 = await ctvHttpRequest(src1, { referer: 'https://vsembed.su/' });
+      if (!r2.body) return null;
+      var cfgMatch = r2.body.match(/window\.CFG\s*=\s*(\{[\s\S]*?\});/);
+      if (!cfgMatch) return null;
+      var cfg = JSON.parse(cfgMatch[1]);
+      if (!cfg.playerUrl) return null;
+
+      var playerUrl = new URL(cfg.playerUrl, src1).toString();
+      var r3 = await ctvHttpRequest(playerUrl, { referer: src1 });
+      if (!r3.body) return null;
+      var confMatch = r3.body.match(/window\.CONFIG\s*=\s*(\{[\s\S]*?\});/);
+      if (!confMatch) return null;
+      var conf = JSON.parse(confMatch[1]);
+
+      var metaUrl = conf.metaApi || (conf.streamBase ? conf.streamBase + '&season=' + (season || 1) + '&episode=' + (episode || 1) : '');
+      var streamHost = null;
+      var metaImdb = conf.imdb || imdbId || '';
+      if (metaUrl) {
+        try {
+          var rMeta = await ctvHttpRequest(metaUrl, { referer: playerUrl });
+          if (rMeta.body) {
+            var jMeta = JSON.parse(rMeta.body);
+            if (jMeta && jMeta.data) {
+              streamHost = jMeta.data.stream_urls_api_host || null;
+              if (jMeta.data.imdb_id) metaImdb = jMeta.data.imdb_id;
+            }
+          }
+        } catch (e) {}
+      }
+
+      var baseStreamApi = conf.api || (conf.streamBase + '&season=' + (conf.season || season || 1) + '&episode=' + (conf.episode || episode || 1) + '&stream_urls');
+      var streamApi = baseStreamApi + (baseStreamApi.indexOf('?') >= 0 ? '&' : '?') + 'api_token=' + encodeURIComponent(conf.apiToken || '');
+      if (streamHost) {
+        try {
+          var uHost = new URL(streamApi);
+          uHost.host = streamHost;
+          streamApi = uHost.toString();
+        } catch (e) {}
+      }
+
+      var rStream = await ctvHttpRequest(streamApi, { referer: playerUrl });
+      if (!rStream.body) return null;
+      var jStream = JSON.parse(rStream.body);
+      if (!jStream || !jStream.data) return null;
+
+      var streamList = jStream.data.stream_urls;
+      if (typeof streamList === 'string' && jStream.vs) {
+        var wasmBytes = null;
+        if (jStream.vs.wasm_url) {
+          var rWasm = await fetch(jStream.vs.wasm_url);
+          wasmBytes = await rWasm.arrayBuffer();
+        } else if (jStream.vs.wasm) {
+          var bStr = atob(jStream.vs.wasm);
+          var u8 = new Uint8Array(bStr.length);
+          for (var i = 0; i < bStr.length; i++) u8[i] = bStr.charCodeAt(i);
+          wasmBytes = u8.buffer;
+        }
+        if (wasmBytes && window.WebAssembly) {
+          var wasmMod = await WebAssembly.instantiate(wasmBytes, {});
+          var ex = wasmMod.instance.exports;
+          var bEnc = atob(streamList);
+          var encBytes = new Uint8Array(bEnc.length);
+          for (var k = 0; k < bEnc.length; k++) encBytes[k] = bEnc.charCodeAt(k);
+          var ptr = ex.alloc(encBytes.length);
+          new Uint8Array(ex.memory.buffer, ptr, encBytes.length).set(encBytes);
+          var outLen = ex.decrypt(ptr, encBytes.length);
+          var decStr = new TextDecoder().decode(new Uint8Array(ex.memory.buffer, ptr + 12, outLen));
+          streamList = decStr.split('\n').filter(Boolean);
+        }
+      }
+
+      if (!Array.isArray(streamList) || !streamList.length) return null;
+      var chosenStream = streamList[0];
+      var streamOrigin = new URL(chosenStream).origin;
+
+      try {
+        var rTok = await ctvHttpRequest(streamOrigin + '/generate.php?api_token=' + encodeURIComponent(conf.apiToken || ''), { referer: playerUrl });
+        if (rTok.body) {
+          var tokText = rTok.body.trim();
+          try {
+            var tokJson = JSON.parse(tokText);
+            tokText = typeof tokJson === 'string' ? tokJson : (tokJson.token || tokJson.data || '');
+          } catch (e) {}
+          if (tokText) {
+            if (chosenStream.indexOf('__TOKEN__') >= 0) {
+              chosenStream = chosenStream.split('__TOKEN__').join(tokText);
+            } else {
+              chosenStream += (chosenStream.indexOf('?') >= 0 ? '&' : '?') + 'token=' + tokText;
+            }
+          }
+        }
+      } catch (e) {}
+
+      var tracks = [];
+      if (metaImdb) {
+        try {
+          var rawImdb = metaImdb.replace(/^tt/i, '');
+          var osUrl = 'https://rest.opensubtitles.org/search/imdbid-' + rawImdb;
+          if (isTv && season && episode) {
+            osUrl += '/season-' + season + '/episode-' + episode;
+          }
+          osUrl += '/sublanguageid-spa';
+          var rOs = await fetch(osUrl, { headers: { 'X-User-Agent': 'trailers.to-UA' } });
+          if (rOs.ok) {
+            var osList = await rOs.json();
+            if (Array.isArray(osList)) {
+              osList.slice(0, 3).forEach(function (sub, idx) {
+                if (sub && sub.SubDownloadLink) {
+                  tracks.push({
+                    url: sub.SubDownloadLink,
+                    label: (sub.LanguageName || 'Español') + (idx > 0 ? ' (' + (idx + 1) + ')' : ''),
+                    default: idx === 0,
+                    isGz: true
+                  });
+                }
+              });
+            }
+          }
+        } catch (e) {}
+      }
+
+      return { url: chosenStream, type: 'hls', tracks: tracks };
+    } catch (err) {
+      return null;
+    }
+  }
+
   async function extractDirectStream(rawUrl) {
     try {
       var parsed = new URL(rawUrl);
       var host = parsed.hostname.toLowerCase();
       var forceCdn = parsed.searchParams.get('ctv_cdn') || '';
+
+      // Caso 0A: AGENDA DEPORTIVA (TVF90 / Eventos en vivo)
+      if (host.indexOf('tvf90.com') >= 0 || rawUrl.indexOf('eventos.html?r=') >= 0) {
+        var tvfRes = await extractTvf90(rawUrl);
+        if (tvfRes) return tvfRes;
+      }
+
+      // Caso 0B: VSEMBED / VIDSRC (Stream universal multi-idioma)
+      if (host.indexOf('vsembed.su') >= 0 || host.indexOf('vidsrc') >= 0) {
+        var vsRes = await extractVsembedStream(rawUrl);
+        if (vsRes) return vsRes;
+      }
+
+      // Caso 0C: DOODSTREAM / PLAYMOGO
+      if (host.indexOf('playmogo') >= 0 || host.indexOf('dood') >= 0) {
+        var doodRes = await extractDoodStream(rawUrl);
+        if (doodRes) return doodRes;
+      }
 
       // Caso A: VIDARA / VIDARAA (API POST /api/stream)
       if (host.indexOf('vidara') >= 0 && parsed.pathname.indexOf('/e/') === 0) {
@@ -933,9 +1318,21 @@
     for (var i = 0; i < sorted.length; i++) {
       var t = sorted[i];
       try {
-        var res = await ctvHttpRequest(t.url, { referer: 'https://pelisjuanita.com/' });
-        if (!res.body || res.body.length < 10) continue;
-        var vttText = srtToVtt(res.body);
+        var subText = '';
+        if (t.isGz && typeof DecompressionStream !== 'undefined') {
+          var gzResp = await fetch(t.url);
+          if (gzResp.ok && gzResp.body) {
+            var decompressed = gzResp.body.pipeThrough(new DecompressionStream('gzip'));
+            subText = await new Response(decompressed).text();
+          }
+        } else {
+          var res = await ctvHttpRequest(t.url, { referer: 'https://pelisjuanita.com/' });
+          if (res.body && res.body.length >= 10) {
+            subText = res.body;
+          }
+        }
+        if (!subText || subText.length < 10) continue;
+        var vttText = srtToVtt(subText);
         var blob = new Blob([vttText], { type: 'text/vtt;charset=utf-8' });
         var blobUrl = URL.createObjectURL(blob);
         activeBlobUrls.push(blobUrl);
@@ -991,7 +1388,15 @@
       l.indexOf('vidara.to') >= 0 ||
       l.indexOf('vidaraa.cc') >= 0 ||
       l.indexOf('savefiles.com') >= 0 ||
-      l.indexOf('mixdrop.top') >= 0
+      l.indexOf('mixdrop.top') >= 0 ||
+      l.indexOf('vsembed.su') >= 0 ||
+      l.indexOf('vidsrc.me') >= 0 ||
+      l.indexOf('vidsrc') >= 0 ||
+      l.indexOf('playmogo') >= 0 ||
+      l.indexOf('dood') >= 0 ||
+      l.indexOf('fastream.to') >= 0 ||
+      l.indexOf('tvf90.com') >= 0 ||
+      l.indexOf('eventos.html?r=') >= 0
     );
   }
 

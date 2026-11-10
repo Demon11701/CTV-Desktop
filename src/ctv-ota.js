@@ -4,7 +4,7 @@
  * sin necesidad de reinstalar la aplicación.
  */
 (function () {
-  window.CTV_OTA_VERSION = '1.6.0-ota.2';
+  window.CTV_OTA_VERSION = '1.6.0-ota.3';
 
   // 1. Inyectar parche de diseño 100% responsivo universal (Notch/Dynamic Island, barras, grillas y modales)
   try {
@@ -89,5 +89,339 @@
     window.addEventListener('resize', adaptLabels);
     window.addEventListener('orientationchange', adaptLabels);
     adaptLabels();
+  } catch (e) {}
+
+  // 3. Escudo anti-caídas y bypass de límite diario (100 vistas) de PelisJuanita
+  try {
+    window.__ctvCatalog = window.__ctvCatalog || {};
+    var _nativeFetch = window.fetch;
+    window.fetch = async function (resource, init) {
+      var url = typeof resource === 'string' ? resource : (resource && resource.url) || '';
+
+      var isCatalogList = url.indexOf('/app/movies.php') >= 0 || url.indexOf('/app/series.php') >= 0 || url.indexOf('/app/home.php') >= 0 || url.indexOf('/app/buscar.php') >= 0;
+      if (isCatalogList && url.indexOf('slug=') < 0) {
+        try {
+          var resp = await _nativeFetch.apply(this, arguments);
+          var clone = resp.clone();
+          clone.json().then(function (j) {
+            if (!j) return;
+            var items = Array.isArray(j.datos) ? j.datos : (Array.isArray(j) ? j : []);
+            if (Array.isArray(j.sections)) {
+              j.sections.forEach(function (sec) {
+                if (Array.isArray(sec.data)) items = items.concat(sec.data);
+              });
+            }
+            items.forEach(function (it) {
+              if (it && it.slug) {
+                window.__ctvCatalog[it.slug] = Object.assign(window.__ctvCatalog[it.slug] || {}, it);
+              }
+            });
+          }).catch(function () {});
+          return resp;
+        } catch (e) {}
+      }
+
+      if (url.indexOf('/app/movies.php?') >= 0 && url.indexOf('slug=') >= 0) {
+        try {
+          var mResp = await _nativeFetch.apply(this, arguments);
+          var mClone = mResp.clone();
+          var mJson = await mClone.json().catch(function () { return null; });
+          if (mJson && mJson.status !== 'error' && mJson.datos) {
+            if (mJson.datos.slug) window.__ctvCatalog[mJson.datos.slug] = mJson.datos;
+            return mResp;
+          }
+        } catch (e) {}
+
+        var slugMatch = url.match(/[?&]slug=([^&]+)/);
+        var mSlug = slugMatch ? decodeURIComponent(slugMatch[1]) : '';
+        var cachedMovie = window.__ctvCatalog[mSlug];
+        if (cachedMovie) {
+          var synthMovie = Object.assign({}, cachedMovie, { servidores: [] });
+          return new Response(JSON.stringify({ status: 'ok', datos: synthMovie }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
+
+      if (url.indexOf('/app/series.php?') >= 0 && url.indexOf('slug=') >= 0 && url.indexOf('&t=') < 0) {
+        try {
+          var sResp = await _nativeFetch.apply(this, arguments);
+          var sClone = sResp.clone();
+          var sJson = await sClone.json().catch(function () { return null; });
+          if (sJson && sJson.status !== 'error' && (sJson.datos || sJson.serie || sJson.episodio)) {
+            var sObj = sJson.datos || sJson.serie || sJson.episodio;
+            if (sObj && sObj.slug) window.__ctvCatalog[sObj.slug] = sObj;
+            return sResp;
+          }
+        } catch (e) {}
+
+        var sSlugMatch = url.match(/[?&]slug=([^&]+)/);
+        var sSlug = sSlugMatch ? decodeURIComponent(sSlugMatch[1]) : '';
+        var cachedSerie = window.__ctvCatalog[sSlug];
+        if (cachedSerie) {
+          var synthSerie = Object.assign({}, cachedSerie, {
+            temporadas: cachedSerie.temporadas || cachedSerie.temp || 1,
+            entransmision: cachedSerie.entransmision || 0
+          });
+          return new Response(JSON.stringify({ status: 'ok', datos: synthSerie }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
+
+      if (url.indexOf('/app/series.php?') >= 0 && url.indexOf('&t=') >= 0 && url.indexOf('&e=') >= 0) {
+        try {
+          var epResp = await _nativeFetch.apply(this, arguments);
+          var epClone = epResp.clone();
+          var epJson = await epClone.json().catch(function () { return null; });
+          if (epJson && epJson.status !== 'error' && Array.isArray(epJson.servidores) && epJson.servidores.length) {
+            return epResp;
+          }
+        } catch (e) {}
+
+        return new Response(JSON.stringify({ status: 'ok', servidores: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      return _nativeFetch.apply(this, arguments);
+    };
+  } catch (e) {}
+
+  // 4. Enriquecedor universal de servidores multi-idioma (Películas, Series, Doramas y Anime)
+  try {
+    var SERIESPLAYER_MIRRORS = [
+      { name: 'FLIXLAT DIRECTO', host: 'flixlat.workers.dev' },
+      { name: 'PLAYSPELIS DIRECTO', host: 'playspelis.workers.dev' },
+      { name: 'ONFILOM DIRECTO', host: 'onfilom.workers.dev' },
+      { name: 'SOLOLATINO DIRECTO', host: 'sololatino.workers.dev' }
+    ];
+
+    function appendParam(url, key, val) {
+      return url + (url.indexOf('?') >= 0 ? '&' : '?') + key + '=' + encodeURIComponent(val);
+    }
+
+    function serverRank(s) {
+      var n = ((s && (s.server_name || s.ServerName)) || '').toUpperCase();
+      var u = ((s && (s.url || s.link)) || '').toLowerCase();
+      if (n.indexOf('DIRECTO') >= 0 || n.indexOf('PELISPLAYER') >= 0 || n.indexOf('SERIESPLAYER') >= 0) return 100;
+      if (n.indexOf('VSEMBED') >= 0 || u.indexOf('vsembed.su') >= 0) return 96;
+      if (n.indexOf('VIDSRC') >= 0 || u.indexOf('vidsrc') >= 0) return 95;
+      if (n.indexOf('VIDLINK') >= 0 || u.indexOf('vidlink') >= 0) return 94;
+      if (n.indexOf('MULTIEMBED') >= 0 || u.indexOf('multiembed') >= 0) return 93;
+      if (n.indexOf('2EMBED') >= 0 || u.indexOf('2embed') >= 0) return 92;
+      if (n.indexOf('NONTONGO') >= 0 || u.indexOf('nontongo') >= 0) return 91;
+      if (u.indexOf('voe.sx') >= 0) return 86;
+      if (u.indexOf('playmogo') >= 0 || u.indexOf('dood') >= 0) return 85;
+      if (u.indexOf('lulustream') >= 0 || u.indexOf('lulust') >= 0) return 84;
+      if (u.indexOf('vibuxer') >= 0 || u.indexOf('streamhg') >= 0 || u.indexOf('streamwish') >= 0) return 83;
+      if (u.indexOf('vidara') >= 0 || u.indexOf('savefiles') >= 0 || u.indexOf('mixdrop') >= 0 || u.indexOf('fastream') >= 0) return 82;
+      return 50;
+    }
+
+    window.ctvEnrichSeriesServers = function (servers, serieInfo, slug, season, episode) {
+      var list = Array.isArray(servers) ? servers.slice() : [];
+      var seenUrls = new Set();
+      list.forEach(function (s) {
+        var u = (s && (s.url || s.link)) || '';
+        if (u) seenUrls.add(u);
+      });
+
+      var spServers = list.filter(function (s) {
+        var u = (s && (s.url || s.link)) || '';
+        return u.indexOf('seriesplayer.fortamomar.workers.dev') >= 0 || u.indexOf('pelisplayer.fortamomar.workers.dev') >= 0;
+      });
+
+      spServers.forEach(function (orig) {
+        var origUrl = orig.url || orig.link || '';
+        SERIESPLAYER_MIRRORS.forEach(function (m) {
+          var mirroredUrl = appendParam(origUrl, 'ctv_cdn', m.host);
+          if (!seenUrls.has(mirroredUrl)) {
+            seenUrls.add(mirroredUrl);
+            list.push({
+              server_name: m.name,
+              url: mirroredUrl,
+              link: mirroredUrl,
+              audio: orig.audio || orig.idioma || 'LATINO',
+              quality: orig.quality || orig.calidad || 'HD'
+            });
+          }
+        });
+      });
+
+      var info = serieInfo || (window.__ctvCatalog && window.__ctvCatalog[slug]) || {};
+      var tmdbId = info.TMDbId || info.tmdb_id || info.tmdb;
+      var imdbId = info.imdb_id || info.ImdbId || info.imdb;
+      var t = season || 1;
+      var e = episode || 1;
+
+      var extras = [];
+      if (imdbId) {
+        extras.push({
+          server_name: 'VSEMBED · MULTI',
+          url: 'https://vsembed.su/embed/tv?imdb=' + encodeURIComponent(imdbId) + '&season=' + t + '&episode=' + e + '&ds_lang=es',
+          audio: 'SUBTITULADA',
+          quality: 'HD'
+        });
+      } else if (tmdbId) {
+        extras.push({
+          server_name: 'VSEMBED · MULTI',
+          url: 'https://vsembed.su/embed/tv?tmdb=' + encodeURIComponent(tmdbId) + '&season=' + t + '&episode=' + e + '&ds_lang=es',
+          audio: 'SUBTITULADA',
+          quality: 'HD'
+        });
+      }
+
+      if (tmdbId) {
+        extras.push(
+          {
+            server_name: 'VIDSRC PRO',
+            url: 'https://vidsrc.me/embed/tv?tmdb=' + encodeURIComponent(tmdbId) + '&season=' + t + '&episode=' + e + '&ds_lang=es',
+            audio: 'SUBTITULADA',
+            quality: 'HD'
+          },
+          {
+            server_name: 'VIDLINK HD',
+            url: 'https://vidlink.pro/tv/' + encodeURIComponent(tmdbId) + '/' + t + '/' + e,
+            audio: 'SUBTITULADA',
+            quality: 'FHD'
+          },
+          {
+            server_name: 'MULTIEMBED',
+            url: 'https://multiembed.mov/?video_id=' + encodeURIComponent(tmdbId) + '&tmdb=1&s=' + t + '&e=' + e,
+            audio: 'SUBTITULADA',
+            quality: 'HD'
+          },
+          {
+            server_name: '2EMBED SERVER',
+            url: 'https://www.2embed.cc/embedtv/' + encodeURIComponent(tmdbId) + '&s=' + t + '&e=' + e,
+            audio: 'SUBTITULADA',
+            quality: 'HD'
+          },
+          {
+            server_name: 'NONTONGO HD',
+            url: 'https://www.nontongo.win/embed/tv/' + encodeURIComponent(tmdbId) + '/' + t + '/' + e,
+            audio: 'SUBTITULADA',
+            quality: 'HD'
+          }
+        );
+      }
+
+      extras.forEach(function (ex) {
+        if (!seenUrls.has(ex.url)) {
+          seenUrls.add(ex.url);
+          list.push(ex);
+        }
+      });
+
+      list.sort(function (a, b) {
+        return serverRank(b) - serverRank(a);
+      });
+
+      return list;
+    };
+
+    window.ctvEnrichMovieServers = function (servers, movieInfo) {
+      var list = Array.isArray(servers) ? servers.slice() : [];
+      var seenUrls = new Set();
+      list.forEach(function (s) {
+        var u = (s && (s.url || s.link)) || '';
+        if (u) seenUrls.add(u);
+      });
+
+      var spServers = list.filter(function (s) {
+        var u = (s && (s.url || s.link)) || '';
+        return u.indexOf('seriesplayer.fortamomar.workers.dev') >= 0 || u.indexOf('pelisplayer.fortamomar.workers.dev') >= 0;
+      });
+
+      spServers.forEach(function (orig) {
+        var origUrl = orig.url || orig.link || '';
+        SERIESPLAYER_MIRRORS.forEach(function (m) {
+          var mirroredUrl = appendParam(origUrl, 'ctv_cdn', m.host);
+          if (!seenUrls.has(mirroredUrl)) {
+            seenUrls.add(mirroredUrl);
+            list.push({
+              server_name: m.name,
+              url: mirroredUrl,
+              link: mirroredUrl,
+              idioma: orig.idioma || orig.audio || 'LATINO',
+              calidad: orig.calidad || orig.quality || 'HD'
+            });
+          }
+        });
+      });
+
+      var info = movieInfo || (movieInfo && movieInfo.slug && window.__ctvCatalog && window.__ctvCatalog[movieInfo.slug]) || {};
+      var tmdbId = info.TMDbId || info.tmdb_id || info.tmdb;
+      var imdbId = info.imdb_id || info.ImdbId || info.imdb;
+
+      var extras = [];
+      if (imdbId) {
+        extras.push({
+          server_name: 'VSEMBED · MULTI',
+          url: 'https://vsembed.su/embed/movie?imdb=' + encodeURIComponent(imdbId) + '&ds_lang=es',
+          idioma: 'SUBTITULADA',
+          calidad: 'HD'
+        });
+      } else if (tmdbId) {
+        extras.push({
+          server_name: 'VSEMBED · MULTI',
+          url: 'https://vsembed.su/embed/movie?tmdb=' + encodeURIComponent(tmdbId) + '&ds_lang=es',
+          idioma: 'SUBTITULADA',
+          calidad: 'HD'
+        });
+      }
+
+      if (tmdbId) {
+        extras.push(
+          {
+            server_name: 'VIDSRC PRO',
+            url: 'https://vidsrc.me/embed/movie?tmdb=' + encodeURIComponent(tmdbId) + '&ds_lang=es',
+            idioma: 'SUBTITULADA',
+            calidad: 'HD'
+          },
+          {
+            server_name: 'VIDLINK HD',
+            url: 'https://vidlink.pro/movie/' + encodeURIComponent(tmdbId),
+            idioma: 'SUBTITULADA',
+            calidad: 'FHD'
+          },
+          {
+            server_name: 'MULTIEMBED',
+            url: 'https://multiembed.mov/?video_id=' + encodeURIComponent(tmdbId) + '&tmdb=1',
+            idioma: 'SUBTITULADA',
+            calidad: 'HD'
+          },
+          {
+            server_name: '2EMBED SERVER',
+            url: 'https://www.2embed.cc/embed/' + encodeURIComponent(tmdbId),
+            idioma: 'SUBTITULADA',
+            calidad: 'HD'
+          },
+          {
+            server_name: 'NONTONGO HD',
+            url: 'https://www.nontongo.win/embed/movie/' + encodeURIComponent(tmdbId),
+            idioma: 'SUBTITULADA',
+            calidad: 'HD'
+          }
+        );
+      }
+
+      extras.forEach(function (ex) {
+        if (!seenUrls.has(ex.url)) {
+          seenUrls.add(ex.url);
+          list.push(ex);
+        }
+      });
+
+      list.sort(function (a, b) {
+        return serverRank(b) - serverRank(a);
+      });
+
+      return list;
+    };
   } catch (e) {}
 })();
