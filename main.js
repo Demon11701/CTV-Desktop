@@ -427,6 +427,13 @@ function proxyFetchRequest(targetUrl, options = {}, redirectCount = 0) {
         ...(options.headers || {})
       };
 
+      if (parsed.hostname.includes('pelisjuanita.com')) {
+        const rndIp = `187.${Math.floor(Math.random() * 200) + 20}.${Math.floor(Math.random() * 240) + 10}.${Math.floor(Math.random() * 240) + 10}`;
+        reqHeaders['X-Forwarded-For'] = rndIp;
+        reqHeaders['X-Real-IP'] = rndIp;
+        reqHeaders['Client-IP'] = rndIp;
+      }
+
       const bodyBuf = options.body ? Buffer.from(options.body, 'utf-8') : null;
       if (bodyBuf) {
         reqHeaders['Content-Length'] = bodyBuf.length;
@@ -664,6 +671,12 @@ function configureSessionSecurityAndAdblock() {
     }
 
     if (!isLocalRequest) {
+      if (reqUrl.includes('pelisjuanita.com')) {
+        const rndIp = `187.${Math.floor(Math.random() * 200) + 20}.${Math.floor(Math.random() * 240) + 10}.${Math.floor(Math.random() * 240) + 10}`;
+        headers['X-Forwarded-For'] = rndIp;
+        headers['X-Real-IP'] = rndIp;
+        headers['Client-IP'] = rndIp;
+      }
       if (needsPjReferer) {
         headers['Referer'] = 'https://pelisjuanita.com/';
         if (reqUrl.includes('workers.dev')) {

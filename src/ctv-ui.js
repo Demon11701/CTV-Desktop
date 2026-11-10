@@ -20,16 +20,38 @@
 
   // Escudo anti-caídas y bypass de límite diario (100 vistas) de PelisJuanita
   try {
+    function ctvGetRandomIp() {
+      var b1 = Math.floor(Math.random() * 40) + 180;
+      var b2 = Math.floor(Math.random() * 200) + 20;
+      var b3 = Math.floor(Math.random() * 240) + 10;
+      var b4 = Math.floor(Math.random() * 240) + 10;
+      return b1 + '.' + b2 + '.' + b3 + '.' + b4;
+    }
+
     window.__ctvCatalog = window.__ctvCatalog || {};
     var _nativeFetch = window.fetch;
+
     window.fetch = async function (resource, init) {
       var url = typeof resource === 'string' ? resource : (resource && resource.url) || '';
+      var isPj = url.indexOf('pelisjuanita.com') >= 0;
+
+      if (!isPj) {
+        return _nativeFetch.apply(this, arguments);
+      }
+
+      var opts = init ? Object.assign({}, init) : {};
+      var headers = opts.headers ? Object.assign({}, opts.headers) : {};
+      var rndIp = ctvGetRandomIp();
+      headers['X-Forwarded-For'] = rndIp;
+      headers['X-Real-IP'] = rndIp;
+      headers['Client-IP'] = rndIp;
+      opts.headers = headers;
 
       // 1. Guardar metadatos en catálogo cada vez que se listen películas o series
       var isCatalogList = url.indexOf('/app/movies.php') >= 0 || url.indexOf('/app/series.php') >= 0 || url.indexOf('/app/home.php') >= 0 || url.indexOf('/app/buscar.php') >= 0;
       if (isCatalogList && url.indexOf('slug=') < 0) {
         try {
-          var resp = await _nativeFetch.apply(this, arguments);
+          var resp = await _nativeFetch.call(this, url, opts);
           var clone = resp.clone();
           clone.json().then(function (j) {
             if (!j) return;
@@ -46,47 +68,68 @@
             });
           }).catch(function () {});
           return resp;
-        } catch (e) {}
+        } catch (e) {
+          return _nativeFetch.apply(this, arguments);
+        }
       }
 
-      // 2. Interceptar detalle de película si PelisJuanita responde con error de límite diario (100 vistas) o cae
+      // 2. Detalle de película: Si da 429 o error, reintentar con nueva IP para obtener TODOS los servidores en Latino
       if (url.indexOf('/app/movies.php?') >= 0 && url.indexOf('slug=') >= 0) {
-        try {
-          var mResp = await _nativeFetch.apply(this, arguments);
-          var mClone = mResp.clone();
-          var mJson = await mClone.json().catch(function () { return null; });
-          if (mJson && mJson.status !== 'error' && mJson.datos) {
-            if (mJson.datos.slug) window.__ctvCatalog[mJson.datos.slug] = mJson.datos;
-            return mResp;
-          }
-        } catch (e) {}
+        for (var mAttempt = 0; mAttempt < 3; mAttempt++) {
+          try {
+            var mIp = ctvGetRandomIp();
+            opts.headers['X-Forwarded-For'] = mIp;
+            opts.headers['X-Real-IP'] = mIp;
+            opts.headers['Client-IP'] = mIp;
+
+            var mResp = await _nativeFetch.call(this, url, opts);
+            if (mResp.status === 200) {
+              var mClone = mResp.clone();
+              var mJson = await mClone.json().catch(function () { return null; });
+              if (mJson && mJson.status !== 'error' && mJson.datos) {
+                if (mJson.datos.slug) {
+                  window.__ctvCatalog[mJson.datos.slug] = Object.assign(window.__ctvCatalog[mJson.datos.slug] || {}, mJson.datos);
+                }
+                return mResp;
+              }
+            }
+          } catch (e) {}
+        }
 
         var slugMatch = url.match(/[?&]slug=([^&]+)/);
         var mSlug = slugMatch ? decodeURIComponent(slugMatch[1]) : '';
         var cachedMovie = window.__ctvCatalog[mSlug];
         if (cachedMovie) {
-          var synthMovie = Object.assign({}, cachedMovie, {
-            servidores: []
-          });
-          return new Response(JSON.stringify({ status: 'ok', datos: synthMovie }), {
+          return new Response(JSON.stringify({ status: 'ok', datos: cachedMovie }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' }
           });
         }
       }
 
-      // 3. Interceptar detalle de serie si PelisJuanita responde con error de límite diario o cae
+      // 3. Detalle de serie: Reintentar con nueva IP para obtener todos los servidores
       if (url.indexOf('/app/series.php?') >= 0 && url.indexOf('slug=') >= 0 && url.indexOf('&t=') < 0) {
-        try {
-          var sResp = await _nativeFetch.apply(this, arguments);
-          var sClone = sResp.clone();
-          var sJson = await sClone.json().catch(function () { return null; });
-          if (sJson && sJson.status !== 'error' && (sJson.datos || sJson.serie || sJson.episodio)) {
-            var sObj = sJson.datos || sJson.serie || sJson.episodio;
-            if (sObj && sObj.slug) window.__ctvCatalog[sObj.slug] = sObj;
-            return sResp;
-          }
-        } catch (e) {}
+        for (var sAttempt = 0; sAttempt < 3; sAttempt++) {
+          try {
+            var sIp = ctvGetRandomIp();
+            opts.headers['X-Forwarded-For'] = sIp;
+            opts.headers['X-Real-IP'] = sIp;
+            opts.headers['Client-IP'] = sIp;
+
+            var sResp = await _nativeFetch.call(this, url, opts);
+            if (sResp.status === 200) {
+              var sClone = sResp.clone();
+              var sJson = await sClone.json().catch(function () { return null; });
+              if (sJson && sJson.status !== 'error' && (sJson.datos || sJson.serie || sJson.episodio)) {
+                var sObj = sJson.datos || sJson.serie || sJson.episodio;
+                if (sObj && sObj.slug) {
+                  window.__ctvCatalog[sObj.slug] = Object.assign(window.__ctvCatalog[sObj.slug] || {}, sObj);
+                }
+                return sResp;
+              }
+            }
+          } catch (e) {}
+        }
 
         var sSlugMatch = url.match(/[?&]slug=([^&]+)/);
         var sSlug = sSlugMatch ? decodeURIComponent(sSlugMatch[1]) : '';
@@ -103,16 +146,25 @@
         }
       }
 
-      // 4. Interceptar servidores de episodios si PelisJuanita falla o no tiene servidores
+      // 4. Servidores de episodios: Reintentar con nueva IP para obtener los servidores en Latino
       if (url.indexOf('/app/series.php?') >= 0 && url.indexOf('&t=') >= 0 && url.indexOf('&e=') >= 0) {
-        try {
-          var epResp = await _nativeFetch.apply(this, arguments);
-          var epClone = epResp.clone();
-          var epJson = await epClone.json().catch(function () { return null; });
-          if (epJson && epJson.status !== 'error' && Array.isArray(epJson.servidores) && epJson.servidores.length) {
-            return epResp;
-          }
-        } catch (e) {}
+        for (var epAttempt = 0; epAttempt < 3; epAttempt++) {
+          try {
+            var epIp = ctvGetRandomIp();
+            opts.headers['X-Forwarded-For'] = epIp;
+            opts.headers['X-Real-IP'] = epIp;
+            opts.headers['Client-IP'] = epIp;
+
+            var epResp = await _nativeFetch.call(this, url, opts);
+            if (epResp.status === 200) {
+              var epClone = epResp.clone();
+              var epJson = await epClone.json().catch(function () { return null; });
+              if (epJson && epJson.status !== 'error' && Array.isArray(epJson.servidores) && epJson.servidores.length) {
+                return epResp;
+              }
+            }
+          } catch (e) {}
+        }
 
         return new Response(JSON.stringify({ status: 'ok', servidores: [] }), {
           status: 200,
@@ -120,7 +172,7 @@
         });
       }
 
-      return _nativeFetch.apply(this, arguments);
+      return _nativeFetch.call(this, url, opts);
     };
   } catch (e) {}
 
@@ -452,33 +504,38 @@
  * Independiente de PelisJuanita: provee espejos CDN y servidores multi-idioma
  * ============================================================================ */
 (function () {
-  var SERIESPLAYER_MIRRORS = [
-    { host: 'r-limit.flixlat.com', name: 'FLIXLAT DIRECTO' },
-    { host: 'vod-limit-02.playspelis.com', name: 'PLAYSPELIS DIRECTO' },
-    { host: 'akm-cdn-play-web.onfilom.com', name: 'ONFILOM DIRECTO' },
-    { host: 'data-limit-c.solo-latino.com', name: 'SOLOLATINO DIRECTO' }
-  ];
-
-  function addParam(url, key, val) {
-    return url + (url.indexOf('?') >= 0 ? '&' : '?') + key + '=' + encodeURIComponent(val);
-  }
-
   function serverRank(s) {
-    var n = ((s && (s.server_name || s.ServerName)) || '').toUpperCase();
+    var lang = ((s && (s.idioma || s.audio)) || '').toUpperCase();
+    var name = ((s && (s.server_name || s.ServerName || s['server-name'])) || '').toUpperCase();
     var u = ((s && (s.url || s.link)) || '').toLowerCase();
-    if (n.indexOf('PELISJUANITA') >= 0 || n.indexOf('DIRECTO') >= 0 || n.indexOf('PELISPLAYER') >= 0 || n.indexOf('SERIESPLAYER') >= 0) return 100;
-    if (n.indexOf('VSEMBED') >= 0 || u.indexOf('vsembed.su') >= 0) return 96;
-    if (n.indexOf('VIDSRC') >= 0 || u.indexOf('vidsrc') >= 0) return 95;
-    if (n.indexOf('VIDLINK') >= 0 || u.indexOf('vidlink') >= 0) return 94;
-    if (n.indexOf('MULTIEMBED') >= 0 || u.indexOf('multiembed') >= 0) return 93;
-    if (n.indexOf('2EMBED') >= 0 || u.indexOf('2embed') >= 0) return 92;
-    if (n.indexOf('NONTONGO') >= 0 || u.indexOf('nontongo') >= 0) return 91;
-    if (u.indexOf('voe.sx') >= 0) return 86;
-    if (u.indexOf('playmogo') >= 0 || u.indexOf('dood') >= 0) return 85;
-    if (u.indexOf('lulustream') >= 0 || u.indexOf('lulust') >= 0) return 84;
-    if (u.indexOf('vibuxer') >= 0 || u.indexOf('streamhg') >= 0 || u.indexOf('streamwish') >= 0) return 83;
-    if (u.indexOf('vidara') >= 0 || u.indexOf('savefiles') >= 0 || u.indexOf('mixdrop') >= 0 || u.indexOf('fastream') >= 0) return 82;
-    return 50;
+
+    // 1. Audio Latino al frente (servidores oficiales de PelisJuanita en Latino)
+    if (lang.indexOf('LATIN') >= 0) {
+      if (name.indexOf('PELISJUANITA') >= 0 || name.indexOf('DIRECTO') >= 0 || name.indexOf('PELISPLAYER') >= 0 || name.indexOf('SERIESPLAYER') >= 0) return 120;
+      if (u.indexOf('voe.sx') >= 0) return 115;
+      if (u.indexOf('vibuxer') >= 0 || u.indexOf('streamwish') >= 0) return 114;
+      if (u.indexOf('lulustream') >= 0 || u.indexOf('lulust') >= 0) return 113;
+      if (u.indexOf('savefiles') >= 0 || u.indexOf('vidara') >= 0 || u.indexOf('mixdrop') >= 0 || u.indexOf('bysesukior') >= 0) return 112;
+      return 110;
+    }
+    // 2. Audio Castellano / Español
+    if (lang.indexOf('ESPA') >= 0 || lang.indexOf('CAST') >= 0) {
+      if (name.indexOf('PELISJUANITA') >= 0 || name.indexOf('DIRECTO') >= 0 || name.indexOf('PELISPLAYER') >= 0 || name.indexOf('SERIESPLAYER') >= 0) return 98;
+      if (u.indexOf('voe.sx') >= 0) return 95;
+      if (u.indexOf('vibuxer') >= 0 || u.indexOf('streamwish') >= 0) return 94;
+      if (u.indexOf('lulustream') >= 0 || u.indexOf('lulust') >= 0) return 93;
+      return 90;
+    }
+    // 3. Servidores subtitulados / multi-idioma
+    if (name.indexOf('PELISJUANITA') >= 0 || name.indexOf('DIRECTO') >= 0 || name.indexOf('PELISPLAYER') >= 0 || name.indexOf('SERIESPLAYER') >= 0) return 88;
+    if (name.indexOf('VSEMBED') >= 0 || u.indexOf('vsembed.su') >= 0) return 85;
+    if (name.indexOf('VIDSRC') >= 0 || u.indexOf('vidsrc') >= 0) return 84;
+    if (name.indexOf('VIDLINK') >= 0 || u.indexOf('vidlink') >= 0) return 83;
+    if (name.indexOf('MULTIEMBED') >= 0 || u.indexOf('multiembed') >= 0) return 82;
+    if (name.indexOf('2EMBED') >= 0 || u.indexOf('2embed') >= 0) return 81;
+    if (name.indexOf('NONTONGO') >= 0 || u.indexOf('nontongo') >= 0) return 80;
+    if (u.indexOf('playmogo') >= 0 || u.indexOf('dood') >= 0) return 75;
+    return 60;
   }
 
   window.ctvEnrichSeriesServers = function (servers, serieInfo, slug, season, episode) {
@@ -489,31 +546,14 @@
       if (u) seenUrls.add(u);
     });
 
-    // 1. Mantener servidores originales de PelisJuanita y expandir con 4 espejos CDN sin anuncios
-    var spServers = list.filter(function (s) {
-      var u = (s && (s.url || s.link)) || '';
-      return u.indexOf('seriesplayer.fortamomar.workers.dev') >= 0 || u.indexOf('pelisplayer.fortamomar.workers.dev') >= 0;
-    });
-
-    spServers.forEach(function (sp) {
-      var baseUrl = sp.url || sp.link || '';
-      var audio = sp.audio || sp.idioma || 'SUBTITULADA';
-      var quality = sp.quality || sp.calidad || 'HD';
-      sp.server_name = 'PELISJUANITA (DIRECTO)';
-
-      SERIESPLAYER_MIRRORS.forEach(function (m) {
-        var mirrorUrl = addParam(baseUrl, 'ctv_cdn', m.host);
-        if (!seenUrls.has(mirrorUrl)) {
-          seenUrls.add(mirrorUrl);
-          list.push({
-            url: mirrorUrl,
-            audio: audio,
-            quality: quality,
-            server_name: m.name,
-            ServerName: m.name
-          });
+    // 1. Mantener servidores oficiales de PelisJuanita (etiquetar SERIESPLAYER como DIRECTO)
+    list.forEach(function (s) {
+      if (s) {
+        var u = (s.url || s.link || '').toLowerCase();
+        if (u.indexOf('seriesplayer.fortamomar.workers.dev') >= 0 || u.indexOf('pelisplayer.fortamomar.workers.dev') >= 0) {
+          s.server_name = 'PELISJUANITA (DIRECTO)';
         }
-      });
+      }
     });
 
     // 2. Agregar servidores multi-embed internacionales/subtitulados para TODAS las series
@@ -523,24 +563,19 @@
     var t = season || 1;
     var e = episode || 1;
 
-    var defaultAudio = 'SUBTITULADA / MULTI';
-    if (list.length && (list[0].audio || list[0].idioma)) {
-      defaultAudio = list[0].audio || list[0].idioma;
-    }
-
     var extraCandidates = [];
     if (imdbId) {
       extraCandidates.push({
         server_name: 'VSEMBED · MULTI',
         url: 'https://vsembed.su/embed/tv?imdb=' + encodeURIComponent(imdbId) + '&season=' + t + '&episode=' + e + '&ds_lang=es',
-        audio: defaultAudio,
+        audio: 'SUBTITULADA',
         quality: 'HD'
       });
     } else if (tmdbId) {
       extraCandidates.push({
         server_name: 'VSEMBED · MULTI',
         url: 'https://vsembed.su/embed/tv?tmdb=' + encodeURIComponent(tmdbId) + '&season=' + t + '&episode=' + e + '&ds_lang=es',
-        audio: defaultAudio,
+        audio: 'SUBTITULADA',
         quality: 'HD'
       });
     }
@@ -602,34 +637,17 @@
       if (u) seenUrls.add(u);
     });
 
-    // 1. Mantener servidores originales de PelisJuanita y expandir con 4 espejos CDN directos sin anuncios
-    var spServers = list.filter(function (s) {
-      var u = (s && (s.url || s.link)) || '';
-      return u.indexOf('seriesplayer.fortamomar.workers.dev') >= 0 || u.indexOf('pelisplayer.fortamomar.workers.dev') >= 0;
-    });
-
-    spServers.forEach(function (sp) {
-      var baseUrl = sp.url || sp.link || '';
-      var idioma = sp.idioma || sp.audio || 'LATINO';
-      var calidad = sp.calidad || sp.quality || 'HD';
-      sp.server_name = 'PELISJUANITA (DIRECTO)';
-
-      SERIESPLAYER_MIRRORS.forEach(function (m) {
-        var mirrorUrl = addParam(baseUrl, 'ctv_cdn', m.host);
-        if (!seenUrls.has(mirrorUrl)) {
-          seenUrls.add(mirrorUrl);
-          list.push({
-            url: mirrorUrl,
-            idioma: idioma,
-            calidad: calidad,
-            server_name: m.name,
-            ServerName: m.name
-          });
+    // 1. Mantener servidores oficiales de PelisJuanita (etiquetar PELISPLAYER como DIRECTO)
+    list.forEach(function (s) {
+      if (s) {
+        var u = (s.url || s.link || '').toLowerCase();
+        if (u.indexOf('seriesplayer.fortamomar.workers.dev') >= 0 || u.indexOf('pelisplayer.fortamomar.workers.dev') >= 0) {
+          s.server_name = 'PELISJUANITA (DIRECTO)';
         }
-      });
+      }
     });
 
-    // 2. Agregar servidores multi-embed internacionales para TODAS las películas (sin límite de catálogo)
+    // 2. Agregar servidores multi-embed internacionales para TODAS las películas
     var info = movieInfo || (movieInfo && movieInfo.slug && window.__ctvCatalog && window.__ctvCatalog[movieInfo.slug]) || {};
     var tmdbId = info.TMDbId || info.tmdb_id || info.tmdb;
     var imdbId = info.imdb_id || info.ImdbId || info.imdb;
@@ -1079,7 +1097,6 @@
     try {
       var parsed = new URL(rawUrl);
       var host = parsed.hostname.toLowerCase();
-      var forceCdn = parsed.searchParams.get('ctv_cdn') || '';
 
       // Caso 0A: AGENDA DEPORTIVA (TVF90 / Eventos en vivo)
       if (host.indexOf('tvf90.com') >= 0 || rawUrl.indexOf('eventos.html?r=') >= 0) {
@@ -1215,9 +1232,6 @@
       if (m3u8Match) {
         var streamUrl = m3u8Match[0];
         if (streamUrl.indexOf('//') === 0) streamUrl = 'https:' + streamUrl;
-        if (forceCdn) {
-          streamUrl = streamUrl.replace(/^https?:\/\/[^/]+/i, 'https://' + forceCdn);
-        }
         return { url: streamUrl, type: 'hls', tracks: tracks };
       }
 
