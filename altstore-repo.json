@@ -20,10 +20,10 @@
       "tintColor": "#a24df0",
       "category": "entertainment",
       "version": "1.6.0",
-      "versionDate": "2026-11-10T00:57:00Z",
+      "versionDate": "2026-11-10T01:01:14Z",
       "versionDescription": "CTV v1.6.0: Solución a 'Acceso no autorizado' en series coreanas/anime (SERIESPLAYER), nueva sección dedicada de Anime, 8+ servidores por episodio y reproducción directa sin anuncios.",
       "downloadURL": "https://github.com/Demon11701/CTV-Desktop/releases/download/v1.6.0/CTV-1.6.0-ios.ipa",
-      "size": 1746208,
+      "size": 1745965,
       "appPermissions": {
         "entitlements": [],
         "privacy": {}
@@ -32,10 +32,10 @@
         {
           "version": "1.6.0",
           "buildVersion": "1.6.0",
-          "date": "2026-11-10T00:57:00Z",
-          "localizedDescription": "CTV v1.6.0: Solución a 'Acceso no autorizado' en series coreanas/anime, nueva sección de Anime, más servidores y reproductor directo sin anuncios.",
+          "date": "2026-11-10T01:01:14Z",
+          "localizedDescription": "CTV v1.6.0 para iOS (SideStore / AltStore).",
           "downloadURL": "https://github.com/Demon11701/CTV-Desktop/releases/download/v1.6.0/CTV-1.6.0-ios.ipa",
-          "size": 1746208,
+          "size": 1745965,
           "minOSVersion": "15.0"
         },
         {
