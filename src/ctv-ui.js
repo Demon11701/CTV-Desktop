@@ -894,13 +894,27 @@
 
   window.ctvOnPlayerClose = cleanupSubs;
 
-  // Petición HTTP con Referer personalizado (usa /__ctv_proxy en PC y CapacitorHttp nativo en iOS)
+  function parseCookiesFromHeader(raw) {
+    if (!raw) return '';
+    var str = Array.isArray(raw) ? raw.join(', ') : String(raw);
+    str = str.replace(/expires=[A-Za-z]{3},\s*[^;,]+/gi, '');
+    var parts = str.split(/,\s*(?=[a-zA-Z0-9_-]+=)/);
+    var out = [];
+    for (var i = 0; i < parts.length; i++) {
+      var kv = parts[i].split(';')[0].trim();
+      if (kv && kv.indexOf('=') > 0) out.push(kv);
+    }
+    return out.join('; ');
+  }
+
+  // Petición HTTP con Referer personalizado (usa /__ctv_proxy en PC y CapacitorHttp nativo en iOS/Android)
   async function ctvHttpRequest(targetUrl, opts) {
     opts = opts || {};
     var method = (opts.method || 'GET').toUpperCase();
     var ref = opts.referer || 'https://pelisjuanita.com/';
     var contentType = opts.contentType || '';
     var body = opts.body || '';
+    var cookie = opts.cookie || '';
 
     // 1. Desktop (Electron local server en 127.0.0.1; en Android/iOS Capacitor usa localhost)
     if (location.hostname === '127.0.0.1') {
@@ -910,30 +924,31 @@
           '&ref=' + encodeURIComponent(ref) +
           '&method=' + encodeURIComponent(method) +
           (contentType ? '&ct=' + encodeURIComponent(contentType) : '') +
+          (cookie ? '&cookie=' + encodeURIComponent(cookie) : '') +
           (body ? '&body=' + encodeURIComponent(body) : '');
         var r = await fetch(proxyUrl);
         if (r.ok) {
           var j = await r.json();
           if (j && j.body) {
-            return { status: j.status || 200, url: j.finalUrl || targetUrl, body: j.body };
+            return { status: j.status || 200, url: j.finalUrl || targetUrl, cookies: j.cookies || '', body: j.body };
           }
         }
       } catch (e) {}
     }
 
-    // 2. iOS / Capacitor nativePromise('CapacitorHttp', 'request', ...)
+    // 2. Android / iOS Capacitor nativePromise('CapacitorHttp', 'request', ...)
     try {
       if (window.Capacitor && typeof window.Capacitor.nativePromise === 'function') {
+        var refOrigin = 'https://pelisjuanita.com';
+        try { refOrigin = new URL(ref).origin; } catch (e) {}
         var headers = {
           'Referer': ref,
-          'Origin': 'https://pelisjuanita.com',
-          'User-Agent': navigator.userAgent || 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Sec-Fetch-Dest': 'iframe',
-          'Sec-Fetch-Mode': 'navigate',
-          'Sec-Fetch-Site': 'cross-site'
+          'Origin': refOrigin,
+          'User-Agent': navigator.userAgent || 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
         };
         if (contentType) headers['Content-Type'] = contentType;
+        if (cookie) headers['Cookie'] = cookie;
 
         var reqPayload = {
           url: targetUrl,
@@ -946,7 +961,10 @@
         var capRes = await window.Capacitor.nativePromise('CapacitorHttp', 'request', reqPayload);
         if (capRes && capRes.data != null) {
           var strData = typeof capRes.data === 'string' ? capRes.data : JSON.stringify(capRes.data);
-          return { status: capRes.status || 200, url: capRes.url || targetUrl, body: strData };
+          var resHeaders = capRes.headers || {};
+          var rawSc = resHeaders['Set-Cookie'] || resHeaders['set-cookie'] || '';
+          var parsedCookies = parseCookiesFromHeader(rawSc);
+          return { status: capRes.status || 200, url: capRes.url || targetUrl, cookies: parsedCookies, body: strData };
         }
       }
     } catch (e) {}
@@ -958,9 +976,9 @@
       if (body) fetchOpts.body = body;
       var resp = await fetch(targetUrl, fetchOpts);
       var txt = await resp.text();
-      return { status: resp.status, url: resp.url || targetUrl, body: txt };
+      return { status: resp.status, url: resp.url || targetUrl, cookies: '', body: txt };
     } catch (e) {
-      return { status: 0, url: targetUrl, body: '' };
+      return { status: 0, url: targetUrl, cookies: '', body: '' };
     }
   }
 
@@ -996,6 +1014,132 @@
       } catch (e) {}
     }
     return html + extra;
+  }
+
+  function hexToBytes(hex) {
+    var bytes = new Uint8Array(hex.length / 2);
+    for (var i = 0; i < bytes.length; i++) {
+      bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+    }
+    return bytes;
+  }
+
+  function bytesToHex(bytes) {
+    var out = '';
+    for (var i = 0; i < bytes.length; i++) {
+      var h = bytes[i].toString(16);
+      out += h.length < 2 ? '0' + h : h;
+    }
+    return out;
+  }
+
+  async function solveVoeAltcha(html, targetUrl, pageCookies) {
+    try {
+      if (!html || html.indexOf('altcha-widget') < 0) return null;
+      var tokenMatch = html.match(/name=["']_token["']\s+value=["']([^"']+)["']/i);
+      var chalMatch = html.match(/challenge=["'](https?:\/\/[^"']+)["']/i);
+      if (!tokenMatch || !chalMatch) return null;
+      var csrfToken = tokenMatch[1];
+      var chalUrl = chalMatch[1];
+
+      var chalRes = await ctvHttpRequest(chalUrl, { referer: targetUrl, cookie: pageCookies });
+      if (!chalRes.body) return null;
+      var chal = JSON.parse(chalRes.body);
+      if (!chal || !chal.parameters || !chal.parameters.nonce || !chal.parameters.salt) return null;
+
+      var subtle = window.crypto && window.crypto.subtle;
+      if (!subtle) return null;
+
+      var params = chal.parameters;
+      var nonceBytes = hexToBytes(params.nonce);
+      var saltBytes = hexToBytes(params.salt);
+      var cost = params.cost || 10000;
+      var keyLenBits = (params.keyLength || 32) * 8;
+      var prefix = String(params.keyPrefix || '00').toLowerCase();
+      var hashAlgo = params.algorithm && params.algorithm.indexOf('512') >= 0
+        ? 'SHA-512'
+        : (params.algorithm && params.algorithm.indexOf('384') >= 0 ? 'SHA-384' : 'SHA-256');
+
+      var t0 = Date.now();
+      var solution = null;
+      var batchSize = 16;
+      for (var base = 0; base < 12000 && !solution; base += batchSize) {
+        var tasks = [];
+        for (var j = 0; j < batchSize; j++) {
+          (function (counter) {
+            var pw = new Uint8Array(nonceBytes.length + 4);
+            pw.set(nonceBytes, 0);
+            new DataView(pw.buffer).setUint32(nonceBytes.length, counter, false);
+            tasks.push(
+              subtle.importKey('raw', pw, { name: 'PBKDF2' }, false, ['deriveBits'])
+                .then(function (k) {
+                  return subtle.deriveBits({ name: 'PBKDF2', salt: saltBytes, iterations: cost, hash: hashAlgo }, k, keyLenBits);
+                })
+                .then(function (bits) {
+                  return { counter: counter, hex: bytesToHex(new Uint8Array(bits)) };
+                })
+            );
+          })(base + j);
+        }
+        var results = await Promise.all(tasks);
+        for (var rIdx = 0; rIdx < results.length; rIdx++) {
+          if (results[rIdx].hex.indexOf(prefix) === 0) {
+            solution = {
+              counter: results[rIdx].counter,
+              derivedKey: results[rIdx].hex,
+              time: Date.now() - t0
+            };
+            break;
+          }
+        }
+      }
+      if (!solution) return null;
+
+      var altchaPayload = btoa(JSON.stringify({
+        challenge: { parameters: chal.parameters, signature: chal.signature },
+        solution: solution
+      }));
+
+      var postCookies = chalRes.cookies ? (pageCookies ? pageCookies + '; ' + chalRes.cookies : chalRes.cookies) : pageCookies;
+      var postRes = await ctvHttpRequest(targetUrl, {
+        method: 'POST',
+        referer: targetUrl,
+        cookie: postCookies,
+        contentType: 'application/json',
+        body: JSON.stringify({ _token: csrfToken, access: '0', altcha: altchaPayload })
+      });
+      if (postRes && postRes.body && postRes.body.length > 3500) {
+        return postRes.body;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function sanitizeEmbedHtml(html, baseUrl) {
+    if (!html) return '';
+    var origin = '';
+    try { origin = new URL(baseUrl).origin; } catch (e) {}
+    var cleaned = html
+      .replace(/<script[^>]*src=["'][^"']*(?:phruk\.org|flawlessimmunizeguy|ads-twitter|ima3\.js|pop\.js|histats|aclib|adcash|exoclick|juicyads|propeller|clickadu|popads|popmyads|trafficjunky|tsyndicate|bidgear|onmarshtompor|rtmark|yllix|stripchat|livejasmin|chaturbate|bongacams)[^"']*["'][^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<script[^>]*>[\s\S]*?(?:flawlessimmunizeguy|f98a024e|c5022bca5c8bac1451cf|phruk\.org|openLoginTab)[\s\S]*?<\/script>/gi, '')
+      .replace(/c74a68dfbd15fcd6f23a6b26879bc82e\s*\(\s*\)/g, 'void 0')
+      .replace(/["']hasAttribute["']/g, '"__ctvNoAttr"')
+      .replace(/["']\/blocked["']/g, '"#"');
+
+    var shieldTag =
+      (origin ? '<base href="' + origin + '/">' : '') +
+      '<script>' +
+      'window.cRAds=true;' +
+      'window.open=function(){return null;};' +
+      'try{Object.defineProperty(window,"frameElement",{get:function(){return null;}});}catch(e){}' +
+      '</script>';
+
+    if (/<head[^>]*>/i.test(cleaned)) {
+      cleaned = cleaned.replace(/<head[^>]*>/i, function (m) { return m + shieldTag; });
+    } else {
+      cleaned = shieldTag + cleaned;
+    }
+    return cleaned;
   }
 
   function decodeVoeJson(html) {
@@ -1299,10 +1443,12 @@
         }
       }
 
-      // Caso C: HGLINK -> VIBUXER mirror
+      // Caso C: HGLINK -> VIBUXER mirror / VIDHIDE -> CALLISTANISE mirror
       var targetUrl = rawUrl;
       if (host.indexOf('hglink.to') >= 0) {
         targetUrl = 'https://vibuxer.com' + parsed.pathname + parsed.search;
+      } else if (host.indexOf('vidhide') >= 0) {
+        targetUrl = 'https://callistanise.com' + parsed.pathname + parsed.search;
       }
 
       var pageRes = await ctvHttpRequest(targetUrl, {
@@ -1310,15 +1456,23 @@
       });
       if (!pageRes.body) return null;
       var html = pageRes.body;
+      var pageCookies = pageRes.cookies || '';
 
       // Seguir redirección JS (ej. voe.sx -> arianathankspecial.com)
       var jsRedir = html.match(/window\.location\.href\s*=\s*['"](https?:\/\/[^'"]+)['"]/i);
       if (jsRedir && jsRedir[1] && html.length < 3000) {
-        var secondRes = await ctvHttpRequest(jsRedir[1], { referer: targetUrl });
+        var secondRes = await ctvHttpRequest(jsRedir[1], { referer: targetUrl, cookie: pageCookies });
         if (secondRes.body) {
           html = secondRes.body;
           targetUrl = jsRedir[1];
+          if (secondRes.cookies) pageCookies = secondRes.cookies;
         }
+      }
+
+      // Resolver verificación Altcha de VOE automáticamente en segundo plano
+      if (html.indexOf('altcha-widget') >= 0) {
+        var solvedHtml = await solveVoeAltcha(html, targetUrl, pageCookies);
+        if (solvedHtml) html = solvedHtml;
       }
 
       // Caso D: VOE JSON obfuscation
@@ -1380,9 +1534,9 @@
         return { url: mp4Url, type: 'mp4', tracks: tracks };
       }
 
-      // Fallback para seriesplayer si devolvió HTML válido pero sin match directo
-      if (host.indexOf('workers.dev') >= 0 && html.indexOf('<html') >= 0) {
-        return { url: rawUrl, type: 'srcdoc', html: html, tracks: [] };
+      // Fallback limpio con HTML desinfectado (sin anuncios ni popups)
+      if (html.indexOf('<html') >= 0 && html.length > 1000) {
+        return { url: targetUrl, type: 'srcdoc', html: sanitizeEmbedHtml(html, targetUrl), tracks: [] };
       }
     } catch (e) {
       console.warn('Error extrayendo stream directo:', e);
@@ -1523,29 +1677,18 @@
   function isExtractableServer(url) {
     if (!url) return false;
     var l = String(url).toLowerCase();
-    return (
-      l.indexOf('workers.dev') >= 0 ||
-      l.indexOf('seriesplayer') >= 0 ||
-      l.indexOf('pelisplayer') >= 0 ||
-      l.indexOf('vimeus.net') >= 0 ||
-      l.indexOf('vimeos.net') >= 0 ||
-      l.indexOf('voe.sx') >= 0 ||
-      l.indexOf('vibuxer.com') >= 0 ||
-      l.indexOf('hglink.to') >= 0 ||
-      l.indexOf('streamwish') >= 0 ||
-      l.indexOf('morencius.com') >= 0 ||
-      l.indexOf('callistanise.com') >= 0 ||
-      l.indexOf('vidhide') >= 0 ||
-      l.indexOf('lulustream.com') >= 0 ||
-      l.indexOf('lulust.com') >= 0 ||
-      l.indexOf('lplaygo.com') >= 0 ||
-      l.indexOf('vidara.to') >= 0 ||
-      l.indexOf('vidaraa.cc') >= 0 ||
-      l.indexOf('mixdrop.top') >= 0 ||
-      l.indexOf('mxdrop.click') >= 0 ||
-      l.indexOf('tvf90.com') >= 0 ||
-      l.indexOf('eventos.html?r=') >= 0
-    );
+    if (
+      l.indexOf('vsembed.') >= 0 ||
+      l.indexOf('vidsrc.') >= 0 ||
+      l.indexOf('vidlink.') >= 0 ||
+      l.indexOf('multiembed.') >= 0 ||
+      l.indexOf('2embed.') >= 0 ||
+      l.indexOf('nontongo.') >= 0 ||
+      l.indexOf('bysesukior.') >= 0
+    ) {
+      return false;
+    }
+    return true;
   }
 
   function openInCleanIframe(rawUrl, title) {
@@ -1566,8 +1709,9 @@
     }
     var f = document.getElementById('player-frame');
     if (f) {
-      f.removeAttribute('sandbox');
+      f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-presentation');
       f.removeAttribute('referrerpolicy');
+      try { f.removeAttribute('srcdoc'); } catch (e) {}
       f.classList.remove('hidden');
       f.src = rawUrl;
       f.focus();
@@ -1580,14 +1724,10 @@
 
     var pFrameInit = document.getElementById('player-frame');
     if (pFrameInit) {
-      pFrameInit.removeAttribute('sandbox');
+      pFrameInit.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-presentation');
       pFrameInit.removeAttribute('referrerpolicy');
     }
 
-    // NUNCA delegar páginas web de servidores a AndroidBridge.playEmbedSlug / playEmbedResume,
-    // porque EmbedPlayerActivity en versiones anteriores del APK contiene un iframe con
-    // sandbox="allow-scripts allow-same-origin" que bloquea los servidores mostrando
-    // "los sandbox no están permitidos" o pantalla en negro.
     if (!isExtractableServer(rawUrl)) {
       openInCleanIframe(rawUrl, title);
       return true;
@@ -1607,7 +1747,7 @@
       openInCleanIframe(rawUrl, title);
     }
 
-    var timeoutId = setTimeout(fallbackToIframe, 7500);
+    var timeoutId = setTimeout(fallbackToIframe, 10000);
 
     extractDirectStream(rawUrl)
       .then(function (res) {
@@ -1652,7 +1792,7 @@
           if (typeof window.__ctvOpenModal === 'function') window.__ctvOpenModal(title);
           var f = document.getElementById('player-frame');
           if (f) {
-            f.removeAttribute('sandbox');
+            f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-presentation');
             f.removeAttribute('referrerpolicy');
             f.classList.remove('hidden');
             f.srcdoc = res.html;
@@ -1963,7 +2103,7 @@
 
     var pFrame = document.getElementById('player-frame');
     if (pFrame) {
-      pFrame.removeAttribute('sandbox');
+      pFrame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-presentation');
       pFrame.removeAttribute('referrerpolicy');
     }
 

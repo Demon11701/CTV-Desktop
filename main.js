@@ -109,6 +109,8 @@ const AD_DOMAINS = [
   'openx.net',
   'outbrain.com',
   'pemsrv.com',
+  'phruk.org',
+  'flawlessimmunizeguy.com',
   'plugrush.com',
   'popads.com',
   'popads.net',
@@ -462,10 +464,17 @@ function proxyFetchRequest(targetUrl, options = {}, redirectCount = 0) {
           res.on('data', (c) => chunks.push(c));
           res.on('end', () => {
             const body = Buffer.concat(chunks).toString('utf-8');
+            const rawSc = res.headers['set-cookie'];
+            const cookies = Array.isArray(rawSc)
+              ? rawSc.map((c) => String(c).split(';')[0].trim()).filter(Boolean).join('; ')
+              : typeof rawSc === 'string'
+                ? rawSc.split(';')[0].trim()
+                : '';
             resolve({
               status: res.statusCode || 200,
               finalUrl: targetUrl,
               contentType: res.headers['content-type'] || 'text/plain; charset=utf-8',
+              cookies,
               body
             });
           });
@@ -536,6 +545,7 @@ function startLocalServer(rootDir) {
           const method = parsedUrl.searchParams.get('method') || req.method || 'GET';
           const contentType = parsedUrl.searchParams.get('ct') || '';
           const bodyParam = parsedUrl.searchParams.get('body') || '';
+          const cookieParam = parsedUrl.searchParams.get('cookie') || '';
           const rawMode = parsedUrl.searchParams.get('raw') === '1';
 
           if (!targetUrl) {
@@ -547,6 +557,9 @@ function startLocalServer(rootDir) {
           const extraHeaders = {};
           if (contentType) {
             extraHeaders['Content-Type'] = contentType;
+          }
+          if (cookieParam && !targetUrl.includes('pelisjuanita.com')) {
+            extraHeaders['Cookie'] = cookieParam;
           }
 
           try {
