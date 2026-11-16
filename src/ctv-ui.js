@@ -28,7 +28,32 @@
       return b1 + '.' + b2 + '.' + b3 + '.' + b4;
     }
 
-    window.__ctvTrueNativeFetch = window.__ctvTrueNativeFetch || window.fetch.bind(window);
+    // 1. Restaurar XMLHttpRequest nativo en Android/iOS (CapacitorHttp reescribe las URLs de XHR a
+    // https://localhost/_capacitor_http_interceptor_?u=..., lo que rompe la resolución de rutas relativas
+    // de segmentos .m3u8/.ts en hls.js y provoca pantalla negra al reproducir videos en <video id="player-video">)
+    try {
+      if (typeof window.CapacitorWebXMLHttpRequest === 'function') {
+        window.XMLHttpRequest = window.CapacitorWebXMLHttpRequest;
+      }
+    } catch (e) {}
+
+    // 2. Obtener fetch compatible con CORS en todas las plataformas
+    if (!window.__ctvTrueNativeFetch) {
+      if (typeof window.CapacitorWebFetch === 'function' && window.Capacitor && typeof window.Capacitor.getServerUrl === 'function') {
+        var capSrv = window.Capacitor.getServerUrl();
+        var rawWebFetch = window.CapacitorWebFetch.bind(window);
+        window.__ctvTrueNativeFetch = function (resource, init) {
+          var u = typeof resource === 'string' ? resource : (resource && resource.url) || '';
+          var m = (init && init.method) ? String(init.method).toUpperCase() : 'GET';
+          if (u.indexOf('http') === 0 && u.indexOf(capSrv) !== 0 && m === 'GET') {
+            return rawWebFetch(capSrv + '/_capacitor_http_interceptor_?u=' + encodeURIComponent(u), init);
+          }
+          return rawWebFetch(resource, init);
+        };
+      } else {
+        window.__ctvTrueNativeFetch = window.fetch.bind(window);
+      }
+    }
     var _nativeFetch = window.__ctvTrueNativeFetch;
     window.__ctvCatalog = window.__ctvCatalog || {};
     window.__ctvDetailCache = window.__ctvDetailCache || {};
@@ -44,8 +69,8 @@
     }
 
     async function ctvFetchPjBypass(targetUrl) {
-      // 1. Desktop proxy (Node.js https.request sin restricciones CORS y con rotación de IP)
-      if (location.hostname === '127.0.0.1' || location.hostname === 'localhost') {
+      // 1. Desktop proxy (solo en 127.0.0.1; en Android/iOS Capacitor usa localhost)
+      if (location.hostname === '127.0.0.1') {
         for (var dAttempt = 0; dAttempt < 3; dAttempt++) {
           try {
             var pUrl = '/__ctv_proxy?url=' + encodeURIComponent(targetUrl) + '&ref=' + encodeURIComponent('https://pelisjuanita.com/');
@@ -877,8 +902,8 @@
     var contentType = opts.contentType || '';
     var body = opts.body || '';
 
-    // 1. Desktop (Electron local server en 127.0.0.1)
-    if (location.hostname === '127.0.0.1' || location.hostname === 'localhost') {
+    // 1. Desktop (Electron local server en 127.0.0.1; en Android/iOS Capacitor usa localhost)
+    if (location.hostname === '127.0.0.1') {
       try {
         var proxyUrl =
           '/__ctv_proxy?url=' + encodeURIComponent(targetUrl) +
@@ -1523,6 +1548,32 @@
     );
   }
 
+  function openInCleanIframe(rawUrl, title) {
+    cleanupSubs();
+    if (typeof window.__ctvOpenModal === 'function') {
+      window.__ctvOpenModal(title);
+    } else {
+      var modal = document.getElementById('player-modal');
+      var pTitle = document.getElementById('player-title');
+      var pVideo = document.getElementById('player-video');
+      if (pTitle) pTitle.textContent = title || '';
+      if (pVideo) {
+        pVideo.pause();
+        pVideo.removeAttribute('src');
+        pVideo.classList.add('hidden');
+      }
+      if (modal) modal.classList.remove('hidden');
+    }
+    var f = document.getElementById('player-frame');
+    if (f) {
+      f.removeAttribute('sandbox');
+      f.removeAttribute('referrerpolicy');
+      f.classList.remove('hidden');
+      f.src = rawUrl;
+      f.focus();
+    }
+  }
+
   window.ctvPlaySmartEmbed = function (url, title, serverName, slug, resumeKey) {
     var rawUrl = String(url || '');
     if (!rawUrl || rawUrl.indexOf('youtube.com/embed') >= 0) return false;
@@ -1533,21 +1584,13 @@
       pFrameInit.removeAttribute('referrerpolicy');
     }
 
-    // En Android nativo (CTV.apk), delegar TODOS los servidores a EmbedPlayerActivity (ExoPlayer + WebView nativo)
-    var bridge = window.AndroidBridge;
-    var isNativeAndroid = !!(bridge && typeof bridge.playEmbedSlug === 'function');
-    if (isNativeAndroid) {
-      var safeServer = String(serverName || 'DIRECTO').replace(/seriesplayer|pelisplayer/gi, 'DIRECTO');
-      if (resumeKey && typeof bridge.playEmbedResume === 'function') {
-        bridge.playEmbedResume(String(title || ''), rawUrl, safeServer, String(slug || ''), String(resumeKey));
-        return true;
-      }
-      bridge.playEmbedSlug(String(title || ''), rawUrl, safeServer, String(slug || ''));
-      return true;
-    }
-
+    // NUNCA delegar páginas web de servidores a AndroidBridge.playEmbedSlug / playEmbedResume,
+    // porque EmbedPlayerActivity en versiones anteriores del APK contiene un iframe con
+    // sandbox="allow-scripts allow-same-origin" que bloquea los servidores mostrando
+    // "los sandbox no están permitidos" o pantalla en negro.
     if (!isExtractableServer(rawUrl)) {
-      return false;
+      openInCleanIframe(rawUrl, title);
+      return true;
     }
 
     // Abrir modal en estado de carga limpia y extraer el stream directo sin anuncios
@@ -1561,16 +1604,7 @@
       didFallback = true;
       var modal = document.getElementById('player-modal');
       if (!modal || modal.classList.contains('hidden')) return;
-      cleanupSubs();
-      if (typeof window.__ctvOpenModal === 'function') window.__ctvOpenModal(title);
-      var f = document.getElementById('player-frame');
-      if (f) {
-        f.removeAttribute('sandbox');
-        f.removeAttribute('referrerpolicy');
-        f.classList.remove('hidden');
-        f.src = rawUrl;
-        f.focus();
-      }
+      openInCleanIframe(rawUrl, title);
     }
 
     var timeoutId = setTimeout(fallbackToIframe, 7500);
@@ -1931,6 +1965,81 @@
     if (pFrame) {
       pFrame.removeAttribute('sandbox');
       pFrame.removeAttribute('referrerpolicy');
+    }
+
+    // Navegación con control remoto D-Pad para el reproductor en Smart TV
+    if (!window.__ctvTvPlayerKeysBound) {
+      window.__ctvTvPlayerKeysBound = true;
+      document.addEventListener('keydown', function (e) {
+        var subsModal = document.getElementById('ctv-subs-modal');
+        if (subsModal) {
+          var subBtns = Array.prototype.slice.call(subsModal.querySelectorAll('button.focusable'));
+          if (!subBtns.length) return;
+          var sIdx = subBtns.indexOf(document.activeElement);
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            e.stopPropagation();
+            subBtns[(sIdx + 1) % subBtns.length].focus();
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            e.stopPropagation();
+            subBtns[(sIdx - 1 + subBtns.length) % subBtns.length].focus();
+          } else if (e.key === 'Escape' || e.key === 'Backspace') {
+            e.preventDefault();
+            e.stopPropagation();
+            subsModal.remove();
+            var ps = document.getElementById('player-subs');
+            if (ps) ps.focus();
+          }
+          return;
+        }
+
+        var pModal = document.getElementById('player-modal');
+        if (!pModal || pModal.classList.contains('hidden')) return;
+        var pVideo = document.getElementById('player-video');
+        var isVideoActive = pVideo && !pVideo.classList.contains('hidden');
+        var barBtns = Array.prototype.slice.call(pModal.querySelectorAll('#player-bar button.focusable:not(.hidden)'));
+        var bIdx = barBtns.indexOf(document.activeElement);
+
+        if (e.key === 'ArrowUp') {
+          if (barBtns.length && bIdx < 0) {
+            e.preventDefault();
+            e.stopPropagation();
+            barBtns[0].focus();
+          }
+        } else if (e.key === 'ArrowDown') {
+          if (bIdx >= 0 && isVideoActive) {
+            e.preventDefault();
+            e.stopPropagation();
+            pVideo.focus();
+          }
+        } else if (e.key === 'ArrowLeft') {
+          if (bIdx > 0) {
+            e.preventDefault();
+            e.stopPropagation();
+            barBtns[bIdx - 1].focus();
+          } else if (bIdx < 0 && isVideoActive) {
+            e.preventDefault();
+            e.stopPropagation();
+            try { pVideo.currentTime = Math.max(0, (pVideo.currentTime || 0) - 10); } catch (err) {}
+          }
+        } else if (e.key === 'ArrowRight') {
+          if (bIdx >= 0 && bIdx < barBtns.length - 1) {
+            e.preventDefault();
+            e.stopPropagation();
+            barBtns[bIdx + 1].focus();
+          } else if (bIdx < 0 && isVideoActive) {
+            e.preventDefault();
+            e.stopPropagation();
+            try { pVideo.currentTime = (pVideo.currentTime || 0) + 10; } catch (err) {}
+          }
+        } else if ((e.key === 'Enter' || e.key === ' ' || e.key === 'MediaPlayPause') && bIdx < 0 && isVideoActive) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (pVideo.paused) pVideo.play().catch(function () {});
+          else pVideo.pause();
+        }
+      }, true);
     }
 
     // Adaptar textos largos del menú en pantallas estrechas para que las 7 pestañas nunca se corten
