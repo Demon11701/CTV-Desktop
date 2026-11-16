@@ -70,7 +70,6 @@ const AD_DOMAINS = [
   'clickadu.com',
   'clickadu.net',
   'clickaine.com',
-  'cloudnestra.com',
   'connatix.com',
   'cpmrevenuegate.com',
   'criteo.com',
@@ -143,15 +142,13 @@ const AD_DOMAINS = [
 ];
 
 const AD_PATH_PATTERNS = [
-  /\/pop(?:under|up)?\.js(\?|$)/i,
-  /\/ad(?:s|server|manager|vast|block|loader)?\.js(\?|$)/i,
+  /\/pop(?:under|up)\.js(\?|$)/i,
+  /\/ad(?:s|server|manager|vast|block|loader)\.js(\?|$)/i,
   /\/vast\.xml(\?|$)/i,
   /\/nativeads\//i,
   /\/popunder\//i,
   /\/clickunder\//i,
-  /\/banner(?:s|ad)?\.js(\?|$)/i,
-  /\/sbx\.js(\?|$)/i,
-  /\/disable-devtool\.js(\?|$)/i
+  /\/banner(?:s|ad)?\.js(\?|$)/i
 ];
 
 function isAdUrl(rawUrl) {
@@ -177,12 +174,14 @@ function isAdUrl(rawUrl) {
   return false;
 }
 
-// In-frame cosmetic & scriptlet ad-shield (extracted from CTV.apk + aggressive click-hijack killer)
+// In-frame cosmetic & scriptlet ad-shield (extracted from CTV.apk + safe click-hijack killer)
 const EMBED_ADBLOCK_SCRIPT = `
 (function() {
   if (window.__pjAd) return;
   window.__pjAd = 1;
   try {
+    window.cRAds = true;
+    window.xRds = false;
     const noop = function() { return null; };
     window.open = noop;
     Object.defineProperty(window, 'open', { value: noop, writable: false, configurable: false });
@@ -191,13 +190,19 @@ const EMBED_ADBLOCK_SCRIPT = `
     window.prompt = function() { return null; };
   } catch (e) {}
 
-  // Intercept window-level click-hijackers that try to open popups on first click
+  try {
+    var st = document.createElement('style');
+    st.textContent = '#adbd, #play_limit_box, .overdiv { display: none !important; }';
+    (document.head || document.documentElement).appendChild(st);
+  } catch (e) {}
+
+  // Intercept window-level click-hijackers that try to open external ad links on click
   try {
     window.addEventListener('click', function(ev) {
       var t = ev.target;
       if (t && t.closest) {
         var a = t.closest('a');
-        if (a && (a.target === '_blank' || (a.href && !a.href.startsWith('javascript:') && a.hostname !== location.hostname))) {
+        if (a && (a.target === '_blank' || (a.href && !a.href.startsWith('javascript:') && a.hostname && a.hostname !== location.hostname))) {
           ev.stopImmediatePropagation();
           ev.preventDefault();
           a.remove();
@@ -209,27 +214,16 @@ const EMBED_ADBLOCK_SCRIPT = `
   function cleanOverlaysAndSkipAds() {
     try {
       var d = document;
-      // 1. Remove invisible click-hijack overlays and ad iframes/anchors
-      var candidates = d.querySelectorAll('a[target="_blank"], div, ins, iframe, aside');
-      for (var j = 0; j < candidates.length; j++) {
-        var el = candidates[j];
+      // 1. Remove invisible click-hijack anchors (<a target="_blank">) and <ins> ad slots without touching player divs/iframes
+      var anchors = d.querySelectorAll('a[target="_blank"], ins');
+      for (var j = 0; j < anchors.length; j++) {
+        var el = anchors[j];
         try {
-          if (el.tagName === 'VIDEO' || el.querySelector('video') || el.id === 'player') continue;
+          if (el.querySelector('video')) continue;
           var style = window.getComputedStyle(el);
           var z = parseInt(style.zIndex, 10) || 0;
           var pos = style.position;
-          if ((pos === 'fixed' || pos === 'absolute') && z > 900) {
-            var rect = el.getBoundingClientRect();
-            if (rect.width >= window.innerWidth * 0.65 && rect.height >= window.innerHeight * 0.65) {
-              var op = parseFloat(style.opacity);
-              var bg = style.backgroundColor || '';
-              if (el.tagName === 'A' || el.tagName === 'IFRAME' || op < 0.2 || bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') {
-                el.remove();
-                continue;
-              }
-            }
-          }
-          if (el.tagName === 'A' && (el.target === '_blank' || pos === 'fixed' || pos === 'absolute') && z > 10) {
+          if (el.tagName === 'INS' || ((pos === 'fixed' || pos === 'absolute') && (el.target === '_blank' || z > 50))) {
             el.remove();
           }
         } catch (e2) {}
@@ -672,6 +666,8 @@ function configureSessionSecurityAndAdblock() {
 
     if (!isLocalRequest) {
       if (reqUrl.includes('pelisjuanita.com')) {
+        delete headers['Cookie'];
+        delete headers['cookie'];
         const rndIp = `187.${Math.floor(Math.random() * 200) + 20}.${Math.floor(Math.random() * 240) + 10}.${Math.floor(Math.random() * 240) + 10}`;
         headers['X-Forwarded-For'] = rndIp;
         headers['X-Real-IP'] = rndIp;
@@ -692,9 +688,10 @@ function configureSessionSecurityAndAdblock() {
     callback({ requestHeaders: headers });
   });
 
-  // 3. Relax X-Frame-Options & ensure CORS for video streams and subtitle tracks
+  // 3. Relax X-Frame-Options & ensure CORS for video streams, subtitle tracks, and PelisJuanita API
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const responseHeaders = { ...(details.responseHeaders || {}) };
+    const u = (details.url || '').toLowerCase();
     for (const key of Object.keys(responseHeaders)) {
       const lower = key.toLowerCase();
       if (lower === 'x-frame-options') {
@@ -703,11 +700,22 @@ function configureSessionSecurityAndAdblock() {
         responseHeaders[key] = responseHeaders[key].map((v) =>
           v.replace(/frame-ancestors[^;]*;?/gi, '')
         );
+      } else if (lower === 'set-cookie' && u.includes('pelisjuanita.com')) {
+        delete responseHeaders[key];
       }
     }
-    const u = (details.url || '').toLowerCase();
-    if (u.includes('.m3u8') || u.includes('.ts') || u.includes('.vtt') || u.includes('.srt') || u.includes('workers.dev')) {
+    if (
+      u.includes('pelisjuanita.com') ||
+      u.includes('.m3u8') ||
+      u.includes('.ts') ||
+      u.includes('.mp4') ||
+      u.includes('.vtt') ||
+      u.includes('.srt') ||
+      u.includes('workers.dev')
+    ) {
       responseHeaders['Access-Control-Allow-Origin'] = ['*'];
+      responseHeaders['Access-Control-Allow-Headers'] = ['*'];
+      responseHeaders['Access-Control-Allow-Methods'] = ['GET, POST, OPTIONS'];
     }
     callback({ responseHeaders });
   });

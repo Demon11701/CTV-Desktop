@@ -4,7 +4,7 @@
  * sin necesidad de reinstalar la aplicación.
  */
 (function () {
-  window.CTV_OTA_VERSION = '1.6.0-ota.4';
+  window.CTV_OTA_VERSION = '1.6.0-ota.5';
 
   // 1. Inyectar parche de diseño 100% responsivo universal (Notch/Dynamic Island, barras, grillas y modales)
   try {
@@ -77,8 +77,13 @@
     ].join('\n');
   } catch (e) {}
 
-  // 2. Adaptar nombres largos del menú en pantallas compactas
+  // 2. Eliminar sandbox de #player-frame (evita bloqueos sbx.js / 404 en servidores embed) y adaptar etiquetas
   try {
+    var pf = document.getElementById('player-frame');
+    if (pf) {
+      pf.removeAttribute('sandbox');
+      pf.removeAttribute('referrerpolicy');
+    }
     function adaptLabels() {
       var compact = window.innerWidth <= 860 || (window.innerHeight >= window.innerWidth && window.innerWidth <= 1024);
       var liveLbl = document.querySelector('.menu-item[data-section="live"] .menu-label');
@@ -91,7 +96,7 @@
     adaptLabels();
   } catch (e) {}
 
-  // 3. Escudo anti-caídas y bypass de límite diario (100 vistas) de PelisJuanita
+  // 3. Recuperar fetch nativo limpio (incluso si una versión previa de ctv-ui.js lo envolvió con cabeceras CORS inválidas)
   try {
     function ctvGetRandomIp() {
       var b1 = Math.floor(Math.random() * 40) + 180;
@@ -101,30 +106,110 @@
       return b1 + '.' + b2 + '.' + b3 + '.' + b4;
     }
 
+    if (!window.__ctvTrueNativeFetch) {
+      var fnStr = String(window.fetch || '');
+      if (fnStr.indexOf('ctvGetRandomIp') >= 0 || fnStr.indexOf('__ctvCatalog') >= 0) {
+        try {
+          var cleanIframe = document.createElement('iframe');
+          cleanIframe.style.display = 'none';
+          (document.body || document.documentElement).appendChild(cleanIframe);
+          if (cleanIframe.contentWindow && typeof cleanIframe.contentWindow.fetch === 'function') {
+            window.__ctvTrueNativeFetch = cleanIframe.contentWindow.fetch.bind(window);
+          }
+          cleanIframe.remove();
+        } catch (e) {}
+      }
+      if (!window.__ctvTrueNativeFetch) {
+        window.__ctvTrueNativeFetch = window.fetch.bind(window);
+      }
+    }
+
+    var _nativeFetch = window.__ctvTrueNativeFetch;
     window.__ctvCatalog = window.__ctvCatalog || {};
-    var _nativeFetch = window.fetch;
+    window.__ctvDetailCache = window.__ctvDetailCache || {};
+
+    function saveCatalogItem(it) {
+      if (!it || !it.slug) return;
+      var prev = window.__ctvCatalog[it.slug] || {};
+      var merged = Object.assign({}, prev, it);
+      if (!merged.TMDbId && merged.id && String(merged.id).length >= 3) {
+        merged.TMDbId = merged.id;
+      }
+      window.__ctvCatalog[it.slug] = merged;
+    }
+
+    async function ctvFetchPjBypass(targetUrl) {
+      if (location.hostname === '127.0.0.1' || location.hostname === 'localhost') {
+        for (var dAttempt = 0; dAttempt < 3; dAttempt++) {
+          try {
+            var pUrl = '/__ctv_proxy?url=' + encodeURIComponent(targetUrl) + '&ref=' + encodeURIComponent('https://pelisjuanita.com/');
+            var pr = await _nativeFetch(pUrl);
+            if (pr.ok) {
+              var pj = await pr.json();
+              if (pj && pj.body) {
+                var parsed = JSON.parse(pj.body);
+                if (parsed && parsed.status !== 'error') return parsed;
+              }
+            }
+          } catch (e) {}
+        }
+      }
+
+      if (window.Capacitor && typeof window.Capacitor.nativePromise === 'function') {
+        for (var cAttempt = 0; cAttempt < 3; cAttempt++) {
+          try {
+            var rndIp = ctvGetRandomIp();
+            var capRes = await window.Capacitor.nativePromise('CapacitorHttp', 'request', {
+              url: targetUrl,
+              method: 'GET',
+              headers: {
+                'Accept': 'application/json',
+                'Referer': 'https://pelisjuanita.com/',
+                'X-Forwarded-For': rndIp,
+                'X-Real-IP': rndIp,
+                'Client-IP': rndIp
+              }
+            });
+            if (capRes && capRes.data != null) {
+              var obj = typeof capRes.data === 'string' ? JSON.parse(capRes.data) : capRes.data;
+              if (obj && obj.status !== 'error') return obj;
+            }
+          } catch (e) {}
+        }
+      }
+
+      try {
+        var rOmit = await _nativeFetch(targetUrl, {
+          headers: { Accept: 'application/json' },
+          credentials: 'omit',
+          cache: 'no-store'
+        });
+        if (rOmit.ok) {
+          var jOmit = await rOmit.json();
+          if (jOmit && jOmit.status !== 'error') return jOmit;
+        }
+      } catch (e) {}
+
+      return null;
+    }
+
+    function jsonResponse(obj) {
+      return new Response(JSON.stringify(obj), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
 
     window.fetch = async function (resource, init) {
       var url = typeof resource === 'string' ? resource : (resource && resource.url) || '';
-      var isPj = url.indexOf('pelisjuanita.com') >= 0;
-
-      if (!isPj) {
+      if (url.indexOf('pelisjuanita.com') < 0) {
         return _nativeFetch.apply(this, arguments);
       }
 
-      var opts = init ? Object.assign({}, init) : {};
-      var headers = opts.headers ? Object.assign({}, opts.headers) : {};
-      var rndIp = ctvGetRandomIp();
-      headers['X-Forwarded-For'] = rndIp;
-      headers['X-Real-IP'] = rndIp;
-      headers['Client-IP'] = rndIp;
-      opts.headers = headers;
-
-      // 1. Guardar metadatos en catálogo cada vez que se listen películas o series
       var isCatalogList = url.indexOf('/app/movies.php') >= 0 || url.indexOf('/app/series.php') >= 0 || url.indexOf('/app/home.php') >= 0 || url.indexOf('/app/buscar.php') >= 0;
       if (isCatalogList && url.indexOf('slug=') < 0) {
         try {
-          var resp = await _nativeFetch.call(this, url, opts);
+          var resp = await _nativeFetch.apply(this, arguments);
           var clone = resp.clone();
           clone.json().then(function (j) {
             if (!j) return;
@@ -134,178 +219,207 @@
                 if (Array.isArray(sec.data)) items = items.concat(sec.data);
               });
             }
-            items.forEach(function (it) {
-              if (it && it.slug) {
-                window.__ctvCatalog[it.slug] = Object.assign(window.__ctvCatalog[it.slug] || {}, it);
-              }
-            });
+            items.forEach(saveCatalogItem);
           }).catch(function () {});
           return resp;
         } catch (e) {
-          return _nativeFetch.apply(this, arguments);
+          var bypList = await ctvFetchPjBypass(url);
+          if (bypList) return jsonResponse(bypList);
+          throw e;
         }
       }
 
-      // 2. Detalle de película: Si da 429 o error, reintentar con nueva IP para obtener TODOS los servidores en Latino
       if (url.indexOf('/app/movies.php?') >= 0 && url.indexOf('slug=') >= 0) {
-        for (var mAttempt = 0; mAttempt < 3; mAttempt++) {
-          try {
-            var mIp = ctvGetRandomIp();
-            opts.headers['X-Forwarded-For'] = mIp;
-            opts.headers['X-Real-IP'] = mIp;
-            opts.headers['Client-IP'] = mIp;
-
-            var mResp = await _nativeFetch.call(this, url, opts);
-            if (mResp.status === 200) {
-              var mClone = mResp.clone();
-              var mJson = await mClone.json().catch(function () { return null; });
-              if (mJson && mJson.status !== 'error' && mJson.datos) {
-                if (mJson.datos.slug) {
-                  window.__ctvCatalog[mJson.datos.slug] = Object.assign(window.__ctvCatalog[mJson.datos.slug] || {}, mJson.datos);
-                }
-                return mResp;
-              }
-            }
-          } catch (e) {}
-        }
-
         var slugMatch = url.match(/[?&]slug=([^&]+)/);
         var mSlug = slugMatch ? decodeURIComponent(slugMatch[1]) : '';
+        var mCacheKey = 'm:' + mSlug;
+        if (mSlug && window.__ctvDetailCache[mCacheKey]) {
+          return jsonResponse(window.__ctvDetailCache[mCacheKey]);
+        }
+
+        try {
+          var mResp = await _nativeFetch.apply(this, arguments);
+          if (mResp.status === 200) {
+            var mClone = mResp.clone();
+            var mJson = await mClone.json().catch(function () { return null; });
+            if (mJson && mJson.status !== 'error' && mJson.datos) {
+              saveCatalogItem(mJson.datos);
+              if (mSlug && mJson.datos.servidores) window.__ctvDetailCache[mCacheKey] = mJson;
+              return mResp;
+            }
+          }
+        } catch (e) {}
+
+        var mByp = await ctvFetchPjBypass(url);
+        if (mByp && mByp.status !== 'error' && mByp.datos) {
+          saveCatalogItem(mByp.datos);
+          if (mSlug && mByp.datos.servidores) window.__ctvDetailCache[mCacheKey] = mByp;
+          return jsonResponse(mByp);
+        }
+
         var cachedMovie = window.__ctvCatalog[mSlug];
         if (cachedMovie) {
-          return new Response(JSON.stringify({ status: 'ok', datos: cachedMovie }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' }
-          });
+          return jsonResponse({ status: 'ok', datos: cachedMovie });
         }
       }
 
-      // 3. Detalle de serie: Reintentar con nueva IP para obtener todos los servidores
       if (url.indexOf('/app/series.php?') >= 0 && url.indexOf('slug=') >= 0 && url.indexOf('&t=') < 0) {
-        for (var sAttempt = 0; sAttempt < 3; sAttempt++) {
-          try {
-            var sIp = ctvGetRandomIp();
-            opts.headers['X-Forwarded-For'] = sIp;
-            opts.headers['X-Real-IP'] = sIp;
-            opts.headers['Client-IP'] = sIp;
-
-            var sResp = await _nativeFetch.call(this, url, opts);
-            if (sResp.status === 200) {
-              var sClone = sResp.clone();
-              var sJson = await sClone.json().catch(function () { return null; });
-              if (sJson && sJson.status !== 'error' && (sJson.datos || sJson.serie || sJson.episodio)) {
-                var sObj = sJson.datos || sJson.serie || sJson.episodio;
-                if (sObj && sObj.slug) {
-                  window.__ctvCatalog[sObj.slug] = Object.assign(window.__ctvCatalog[sObj.slug] || {}, sObj);
-                }
-                return sResp;
-              }
-            }
-          } catch (e) {}
-        }
-
         var sSlugMatch = url.match(/[?&]slug=([^&]+)/);
         var sSlug = sSlugMatch ? decodeURIComponent(sSlugMatch[1]) : '';
+        var sCacheKey = 's:' + sSlug;
+        if (sSlug && window.__ctvDetailCache[sCacheKey]) {
+          return jsonResponse(window.__ctvDetailCache[sCacheKey]);
+        }
+
+        try {
+          var sResp = await _nativeFetch.apply(this, arguments);
+          if (sResp.status === 200) {
+            var sClone = sResp.clone();
+            var sJson = await sClone.json().catch(function () { return null; });
+            if (sJson && sJson.status !== 'error' && (sJson.datos || sJson.serie || sJson.episodio)) {
+              var sObj = sJson.datos || sJson.serie || sJson.episodio;
+              saveCatalogItem(sObj);
+              if (sSlug) window.__ctvDetailCache[sCacheKey] = sJson;
+              return sResp;
+            }
+          }
+        } catch (e) {}
+
+        var sByp = await ctvFetchPjBypass(url);
+        if (sByp && sByp.status !== 'error' && (sByp.datos || sByp.serie || sByp.episodio)) {
+          var sObj2 = sByp.datos || sByp.serie || sByp.episodio;
+          saveCatalogItem(sObj2);
+          if (sSlug) window.__ctvDetailCache[sCacheKey] = sByp;
+          return jsonResponse(sByp);
+        }
+
         var cachedSerie = window.__ctvCatalog[sSlug];
         if (cachedSerie) {
           var synthSerie = Object.assign({}, cachedSerie, {
             temporadas: cachedSerie.temporadas || cachedSerie.temp || 1,
             entransmision: cachedSerie.entransmision || 0
           });
-          return new Response(JSON.stringify({ status: 'ok', datos: synthSerie }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' }
-          });
+          return jsonResponse({ status: 'ok', datos: synthSerie });
         }
       }
 
-      // 4. Servidores de episodios: Reintentar con nueva IP para obtener los servidores en Latino
+      if (url.indexOf('/app/series.php?') >= 0 && url.indexOf('&t=') >= 0 && url.indexOf('&e=') < 0) {
+        try {
+          var tResp = await _nativeFetch.apply(this, arguments);
+          if (tResp.status === 200) {
+            var tClone = tResp.clone();
+            var tJson = await tClone.json().catch(function () { return null; });
+            if (tJson && tJson.status !== 'error') return tResp;
+          }
+        } catch (e) {}
+
+        var tByp = await ctvFetchPjBypass(url);
+        if (tByp && tByp.status !== 'error') {
+          return jsonResponse(tByp);
+        }
+      }
+
       if (url.indexOf('/app/series.php?') >= 0 && url.indexOf('&t=') >= 0 && url.indexOf('&e=') >= 0) {
-        for (var epAttempt = 0; epAttempt < 3; epAttempt++) {
-          try {
-            var epIp = ctvGetRandomIp();
-            opts.headers['X-Forwarded-For'] = epIp;
-            opts.headers['X-Real-IP'] = epIp;
-            opts.headers['Client-IP'] = epIp;
-
-            var epResp = await _nativeFetch.call(this, url, opts);
-            if (epResp.status === 200) {
-              var epClone = epResp.clone();
-              var epJson = await epClone.json().catch(function () { return null; });
-              if (epJson && epJson.status !== 'error' && Array.isArray(epJson.servidores) && epJson.servidores.length) {
-                return epResp;
-              }
-            }
-          } catch (e) {}
+        var epCacheKey = 'ep:' + url.split('?')[1];
+        if (window.__ctvDetailCache[epCacheKey]) {
+          return jsonResponse(window.__ctvDetailCache[epCacheKey]);
         }
 
-        return new Response(JSON.stringify({ status: 'ok', servidores: [] }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' }
-        });
+        try {
+          var epResp = await _nativeFetch.apply(this, arguments);
+          if (epResp.status === 200) {
+            var epClone = epResp.clone();
+            var epJson = await epClone.json().catch(function () { return null; });
+            if (epJson && epJson.status !== 'error' && epJson.servidores) {
+              window.__ctvDetailCache[epCacheKey] = epJson;
+              return epResp;
+            }
+          }
+        } catch (e) {}
+
+        var epByp = await ctvFetchPjBypass(url);
+        if (epByp && epByp.status !== 'error' && epByp.servidores) {
+          window.__ctvDetailCache[epCacheKey] = epByp;
+          return jsonResponse(epByp);
+        }
+
+        return jsonResponse({ status: 'ok', servidores: [] });
       }
 
-      return _nativeFetch.call(this, url, opts);
+      return _nativeFetch.apply(this, arguments);
     };
   } catch (e) {}
 
-  // 4. Enriquecedor universal de servidores multi-idioma (Películas, Series, Doramas y Anime)
+  // 4. Enriquecedor de servidores (PelisJuanita Latino al frente + respaldos funcionales abajo)
   try {
+    function normalizeServerName(s) {
+      if (!s) return;
+      var u = String(s.url || s.link || '').toLowerCase();
+      var cur = String(s.server_name || s.ServerName || s['server-name'] || '').trim();
+      if (u.indexOf('seriesplayer.fortamomar.workers.dev') >= 0 || u.indexOf('pelisplayer.fortamomar.workers.dev') >= 0) {
+        s.server_name = 'PELISJUANITA (DIRECTO)';
+        s.ServerName = 'PELISJUANITA (DIRECTO)';
+        return;
+      }
+      if (!cur || cur.toUpperCase() === 'UNKNOWN') {
+        var guessed = '';
+        if (u.indexOf('vimeus') >= 0 || u.indexOf('vimeos') >= 0) guessed = 'VIMEUS';
+        else if (u.indexOf('savefiles') >= 0) guessed = 'SAVEFILES';
+        else if (u.indexOf('voe.sx') >= 0) guessed = 'VOE';
+        else if (u.indexOf('vibuxer') >= 0 || u.indexOf('hglink') >= 0 || u.indexOf('streamwish') >= 0) guessed = 'STREAMWISH';
+        else if (u.indexOf('lulustream') >= 0 || u.indexOf('lulust') >= 0 || u.indexOf('lplaygo') >= 0) guessed = 'LULUSTREAM';
+        else if (u.indexOf('vidara') >= 0) guessed = 'VIDARA';
+        else if (u.indexOf('mixdrop') >= 0 || u.indexOf('mxdrop') >= 0) guessed = 'MIXDROP';
+        else if (u.indexOf('bysesukior') >= 0 || u.indexOf('byse') >= 0) guessed = 'BYSE';
+        else if (u.indexOf('morencius') >= 0 || u.indexOf('earnvids') >= 0) guessed = 'EARNVIDS';
+        else if (u.indexOf('playmogo') >= 0 || u.indexOf('dood') >= 0) guessed = 'DOOD';
+        else if (u.indexOf('vsembed') >= 0 || u.indexOf('vidsrc') >= 0) guessed = 'VIDSRC';
+        if (guessed) {
+          s.server_name = guessed;
+          s.ServerName = guessed;
+        }
+      }
+    }
+
     function serverRank(s) {
+      if (s && s._isBackupExtra) return s._extraRank || 65;
       var lang = ((s && (s.idioma || s.audio)) || '').toUpperCase();
       var name = ((s && (s.server_name || s.ServerName || s['server-name'])) || '').toUpperCase();
       var u = ((s && (s.url || s.link)) || '').toLowerCase();
 
-      // 1. Audio Latino al frente (servidores oficiales de PelisJuanita en Latino)
       if (lang.indexOf('LATIN') >= 0) {
-        if (name.indexOf('PELISJUANITA') >= 0 || name.indexOf('DIRECTO') >= 0 || name.indexOf('PELISPLAYER') >= 0 || name.indexOf('SERIESPLAYER') >= 0) return 120;
-        if (u.indexOf('voe.sx') >= 0) return 115;
-        if (u.indexOf('vibuxer') >= 0 || u.indexOf('streamwish') >= 0) return 114;
-        if (u.indexOf('lulustream') >= 0 || u.indexOf('lulust') >= 0) return 113;
-        if (u.indexOf('savefiles') >= 0 || u.indexOf('vidara') >= 0 || u.indexOf('mixdrop') >= 0 || u.indexOf('bysesukior') >= 0) return 112;
+        if (name.indexOf('PELISJUANITA') >= 0 || name.indexOf('DIRECTO') >= 0 || name.indexOf('PELISPLAYER') >= 0 || name.indexOf('SERIESPLAYER') >= 0) return 125;
+        if (name.indexOf('VIMEUS') >= 0 || u.indexOf('vimeus') >= 0) return 122;
+        if (u.indexOf('voe.sx') >= 0) return 118;
+        if (u.indexOf('vibuxer') >= 0 || u.indexOf('hglink') >= 0 || u.indexOf('streamwish') >= 0) return 117;
+        if (u.indexOf('lulustream') >= 0 || u.indexOf('lulust') >= 0) return 116;
+        if (u.indexOf('morencius') >= 0) return 115;
+        if (u.indexOf('vidara') >= 0 || u.indexOf('mixdrop') >= 0 || u.indexOf('bysesukior') >= 0 || u.indexOf('savefiles') >= 0) return 114;
         return 110;
       }
-      // 2. Audio Castellano / Español
       if (lang.indexOf('ESPA') >= 0 || lang.indexOf('CAST') >= 0) {
-        if (name.indexOf('PELISJUANITA') >= 0 || name.indexOf('DIRECTO') >= 0 || name.indexOf('PELISPLAYER') >= 0 || name.indexOf('SERIESPLAYER') >= 0) return 98;
-        if (u.indexOf('voe.sx') >= 0) return 95;
-        if (u.indexOf('vibuxer') >= 0 || u.indexOf('streamwish') >= 0) return 94;
-        if (u.indexOf('lulustream') >= 0 || u.indexOf('lulust') >= 0) return 93;
+        if (name.indexOf('PELISJUANITA') >= 0 || name.indexOf('DIRECTO') >= 0 || name.indexOf('PELISPLAYER') >= 0 || name.indexOf('SERIESPLAYER') >= 0) return 99;
+        if (name.indexOf('VIMEUS') >= 0 || u.indexOf('vimeus') >= 0) return 98;
+        if (u.indexOf('voe.sx') >= 0) return 96;
+        if (u.indexOf('vibuxer') >= 0 || u.indexOf('hglink') >= 0 || u.indexOf('streamwish') >= 0) return 95;
+        if (u.indexOf('lulustream') >= 0 || u.indexOf('lulust') >= 0) return 94;
         return 90;
       }
-      // 3. Servidores subtitulados / multi-idioma limpios
       if (name.indexOf('PELISJUANITA') >= 0 || name.indexOf('DIRECTO') >= 0 || name.indexOf('PELISPLAYER') >= 0 || name.indexOf('SERIESPLAYER') >= 0) return 88;
-      if (name.indexOf('VSEMBED') >= 0 || u.indexOf('vsembed.su') >= 0) return 85;
-      if (name.indexOf('VIDSRC') >= 0 || u.indexOf('vidsrc') >= 0) return 84;
-      if (name.indexOf('VIDLINK') >= 0 || u.indexOf('vidlink') >= 0) return 83;
-      if (name.indexOf('MULTIEMBED') >= 0 || u.indexOf('multiembed') >= 0) return 82;
-      if (name.indexOf('2EMBED') >= 0 || u.indexOf('2embed') >= 0) return 81;
-      if (name.indexOf('NONTONGO') >= 0 || u.indexOf('nontongo') >= 0) return 80;
-      if (u.indexOf('playmogo') >= 0 || u.indexOf('dood') >= 0) return 75;
-      return 60;
+      return 82;
     }
 
     window.ctvEnrichSeriesServers = function (servers, serieInfo, slug, season, episode) {
       var list = Array.isArray(servers) ? servers.slice() : [];
       var seenUrls = new Set();
       list.forEach(function (s) {
+        normalizeServerName(s);
         var u = (s && (s.url || s.link)) || '';
         if (u) seenUrls.add(u);
       });
 
-      // 1. Mantener servidores oficiales de PelisJuanita (etiquetar SERIESPLAYER como DIRECTO)
-      list.forEach(function (s) {
-        if (s) {
-          var u = (s.url || s.link || '').toLowerCase();
-          if (u.indexOf('seriesplayer.fortamomar.workers.dev') >= 0 || u.indexOf('pelisplayer.fortamomar.workers.dev') >= 0) {
-            s.server_name = 'PELISJUANITA (DIRECTO)';
-          }
-        }
-      });
-
-      // 2. Agregar servidores multi-embed internacionales/subtitulados para TODAS las series
       var info = serieInfo || (window.__ctvCatalog && window.__ctvCatalog[slug]) || {};
-      var tmdbId = info.TMDbId || info.tmdb_id || info.tmdb;
+      var tmdbId = info.TMDbId || info.tmdb_id || info.tmdb || (info.id && String(info.id).length >= 3 ? info.id : '');
       var imdbId = info.imdb_id || info.ImdbId || info.imdb;
       var t = season || 1;
       var e = episode || 1;
@@ -316,14 +430,18 @@
           server_name: 'VSEMBED · MULTI',
           url: 'https://vsembed.su/embed/tv?imdb=' + encodeURIComponent(imdbId) + '&season=' + t + '&episode=' + e + '&ds_lang=es',
           audio: 'SUBTITULADA',
-          quality: 'HD'
+          quality: 'HD',
+          _isBackupExtra: true,
+          _extraRank: 75
         });
       } else if (tmdbId) {
         extraCandidates.push({
           server_name: 'VSEMBED · MULTI',
           url: 'https://vsembed.su/embed/tv?tmdb=' + encodeURIComponent(tmdbId) + '&season=' + t + '&episode=' + e + '&ds_lang=es',
           audio: 'SUBTITULADA',
-          quality: 'HD'
+          quality: 'HD',
+          _isBackupExtra: true,
+          _extraRank: 75
         });
       }
 
@@ -331,33 +449,43 @@
         extraCandidates.push(
           {
             server_name: 'VIDSRC PRO',
-            url: 'https://vidsrc.me/embed/tv?tmdb=' + encodeURIComponent(tmdbId) + '&season=' + t + '&episode=' + e + '&ds_lang=es',
+            url: 'https://vidsrc.sh/embed/tv?tmdb=' + encodeURIComponent(tmdbId) + '&season=' + t + '&episode=' + e + '&ds_lang=es',
             audio: 'SUBTITULADA',
-            quality: 'HD'
+            quality: 'HD',
+            _isBackupExtra: true,
+            _extraRank: 74
           },
           {
             server_name: 'VIDLINK HD',
             url: 'https://vidlink.pro/tv/' + encodeURIComponent(tmdbId) + '/' + t + '/' + e,
             audio: 'SUBTITULADA',
-            quality: 'FHD'
+            quality: 'FHD',
+            _isBackupExtra: true,
+            _extraRank: 73
           },
           {
             server_name: 'MULTIEMBED',
             url: 'https://multiembed.mov/?video_id=' + encodeURIComponent(tmdbId) + '&tmdb=1&s=' + t + '&e=' + e,
             audio: 'SUBTITULADA',
-            quality: 'HD'
+            quality: 'HD',
+            _isBackupExtra: true,
+            _extraRank: 72
           },
           {
             server_name: '2EMBED SERVER',
             url: 'https://www.2embed.cc/embedtv/' + encodeURIComponent(tmdbId) + '&s=' + t + '&e=' + e,
             audio: 'SUBTITULADA',
-            quality: 'HD'
+            quality: 'HD',
+            _isBackupExtra: true,
+            _extraRank: 71
           },
           {
             server_name: 'NONTONGO HD',
             url: 'https://www.nontongo.win/embed/tv/' + encodeURIComponent(tmdbId) + '/' + t + '/' + e,
             audio: 'SUBTITULADA',
-            quality: 'HD'
+            quality: 'HD',
+            _isBackupExtra: true,
+            _extraRank: 70
           }
         );
       }
@@ -380,23 +508,13 @@
       var list = Array.isArray(servers) ? servers.slice() : [];
       var seenUrls = new Set();
       list.forEach(function (s) {
+        normalizeServerName(s);
         var u = (s && (s.url || s.link)) || '';
         if (u) seenUrls.add(u);
       });
 
-      // 1. Mantener servidores oficiales de PelisJuanita (etiquetar PELISPLAYER como DIRECTO)
-      list.forEach(function (s) {
-        if (s) {
-          var u = (s.url || s.link || '').toLowerCase();
-          if (u.indexOf('seriesplayer.fortamomar.workers.dev') >= 0 || u.indexOf('pelisplayer.fortamomar.workers.dev') >= 0) {
-            s.server_name = 'PELISJUANITA (DIRECTO)';
-          }
-        }
-      });
-
-      // 2. Agregar servidores multi-embed internacionales para TODAS las películas
       var info = movieInfo || (movieInfo && movieInfo.slug && window.__ctvCatalog && window.__ctvCatalog[movieInfo.slug]) || {};
-      var tmdbId = info.TMDbId || info.tmdb_id || info.tmdb;
+      var tmdbId = info.TMDbId || info.tmdb_id || info.tmdb || (info.id && String(info.id).length >= 3 ? info.id : '');
       var imdbId = info.imdb_id || info.ImdbId || info.imdb;
 
       var extras = [];
@@ -405,14 +523,18 @@
           server_name: 'VSEMBED · MULTI',
           url: 'https://vsembed.su/embed/movie?imdb=' + encodeURIComponent(imdbId) + '&ds_lang=es',
           idioma: 'SUBTITULADA',
-          calidad: 'HD'
+          calidad: 'HD',
+          _isBackupExtra: true,
+          _extraRank: 75
         });
       } else if (tmdbId) {
         extras.push({
           server_name: 'VSEMBED · MULTI',
           url: 'https://vsembed.su/embed/movie?tmdb=' + encodeURIComponent(tmdbId) + '&ds_lang=es',
           idioma: 'SUBTITULADA',
-          calidad: 'HD'
+          calidad: 'HD',
+          _isBackupExtra: true,
+          _extraRank: 75
         });
       }
 
@@ -420,33 +542,43 @@
         extras.push(
           {
             server_name: 'VIDSRC PRO',
-            url: 'https://vidsrc.me/embed/movie?tmdb=' + encodeURIComponent(tmdbId) + '&ds_lang=es',
+            url: 'https://vidsrc.sh/embed/movie?tmdb=' + encodeURIComponent(tmdbId) + '&ds_lang=es',
             idioma: 'SUBTITULADA',
-            calidad: 'HD'
+            calidad: 'HD',
+            _isBackupExtra: true,
+            _extraRank: 74
           },
           {
             server_name: 'VIDLINK HD',
             url: 'https://vidlink.pro/movie/' + encodeURIComponent(tmdbId),
             idioma: 'SUBTITULADA',
-            calidad: 'FHD'
+            calidad: 'FHD',
+            _isBackupExtra: true,
+            _extraRank: 73
           },
           {
             server_name: 'MULTIEMBED',
             url: 'https://multiembed.mov/?video_id=' + encodeURIComponent(tmdbId) + '&tmdb=1',
             idioma: 'SUBTITULADA',
-            calidad: 'HD'
+            calidad: 'HD',
+            _isBackupExtra: true,
+            _extraRank: 72
           },
           {
             server_name: '2EMBED SERVER',
             url: 'https://www.2embed.cc/embed/' + encodeURIComponent(tmdbId),
             idioma: 'SUBTITULADA',
-            calidad: 'HD'
+            calidad: 'HD',
+            _isBackupExtra: true,
+            _extraRank: 71
           },
           {
             server_name: 'NONTONGO HD',
             url: 'https://www.nontongo.win/embed/movie/' + encodeURIComponent(tmdbId),
             idioma: 'SUBTITULADA',
-            calidad: 'HD'
+            calidad: 'HD',
+            _isBackupExtra: true,
+            _extraRank: 70
           }
         );
       }
@@ -464,5 +596,78 @@
 
       return list;
     };
+  } catch (e) {}
+
+  // 5. Parchear __ctvOrigKh y ctvPlaySmartEmbed para evitar fallos de reproducción en Android, iOS y PC
+  try {
+    window.__ctvOrigKh = function (h, i, s, a, u) {
+      var rawUrl = String(h || '');
+      var f = document.getElementById('player-frame');
+      if (f) {
+        f.removeAttribute('sandbox');
+        f.removeAttribute('referrerpolicy');
+      }
+      var bridge = window.AndroidBridge;
+      if (bridge && typeof bridge.playEmbedSlug === 'function') {
+        var safeServer = String(s || 'DIRECTO').replace(/seriesplayer|pelisplayer/gi, 'DIRECTO');
+        if (u && typeof bridge.playEmbedResume === 'function') {
+          bridge.playEmbedResume(String(i || ''), rawUrl, safeServer, String(a || ''), String(u));
+          return;
+        }
+        bridge.playEmbedSlug(String(i || ''), rawUrl, safeServer, String(a || ''));
+        return;
+      }
+      if (typeof window.__ctvOpenModal === 'function') window.__ctvOpenModal(i);
+      if (f) {
+        f.classList.remove('hidden');
+        f.src = rawUrl;
+        f.focus();
+      }
+    };
+
+    var _prevSmartEmbed = window.__ctvBaseSmartEmbed || window.ctvPlaySmartEmbed;
+    window.__ctvBaseSmartEmbed = _prevSmartEmbed;
+    if (typeof _prevSmartEmbed === 'function') {
+      window.ctvPlaySmartEmbed = function (url, title, serverName, slug, resumeKey) {
+        var rawUrl = String(url || '');
+        if (!rawUrl || rawUrl.indexOf('youtube.com/embed') >= 0) return false;
+
+        var f = document.getElementById('player-frame');
+        if (f) {
+          f.removeAttribute('sandbox');
+          f.removeAttribute('referrerpolicy');
+        }
+
+        // En Android nativo, delegar TODOS los servidores a EmbedPlayerActivity
+        var bridge = window.AndroidBridge;
+        if (bridge && typeof bridge.playEmbedSlug === 'function') {
+          var safeServer = String(serverName || 'DIRECTO').replace(/seriesplayer|pelisplayer/gi, 'DIRECTO');
+          if (resumeKey && typeof bridge.playEmbedResume === 'function') {
+            bridge.playEmbedResume(String(title || ''), rawUrl, safeServer, String(slug || ''), String(resumeKey));
+            return true;
+          }
+          bridge.playEmbedSlug(String(title || ''), rawUrl, safeServer, String(slug || ''));
+          return true;
+        }
+
+        var l = rawUrl.toLowerCase();
+        if (
+          l.indexOf('vsembed') >= 0 ||
+          l.indexOf('vidsrc') >= 0 ||
+          l.indexOf('savefiles') >= 0 ||
+          l.indexOf('playmogo') >= 0 ||
+          l.indexOf('dood') >= 0 ||
+          l.indexOf('bysesukior') >= 0 ||
+          l.indexOf('vidlink') >= 0 ||
+          l.indexOf('multiembed') >= 0 ||
+          l.indexOf('2embed') >= 0 ||
+          l.indexOf('nontongo') >= 0
+        ) {
+          return false;
+        }
+
+        return _prevSmartEmbed.call(this, rawUrl, title, serverName, slug, resumeKey);
+      };
+    }
   } catch (e) {}
 })();
