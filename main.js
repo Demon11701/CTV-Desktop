@@ -783,7 +783,16 @@ async function createWindow() {
 
   // Prevent main window from being redirected away from the local app
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith('http://127.0.0.1')) {
+    try {
+      const parsed = new URL(url);
+      const isLocal =
+        parsed.protocol === 'file:' ||
+        parsed.hostname === '127.0.0.1' ||
+        parsed.hostname === 'localhost';
+      if (!isLocal) {
+        event.preventDefault();
+      }
+    } catch {
       event.preventDefault();
     }
   });

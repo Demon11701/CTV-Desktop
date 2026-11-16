@@ -20,6 +20,14 @@
 
   // Escudo anti-caídas y bypass seguro de límite diario (100 vistas) de PelisJuanita (sin romper CORS en WebViews)
   try {
+    function ctvIsDesktopProxyAvailable() {
+      var isNativeAndroid = Boolean(window.AndroidBridge && typeof window.AndroidBridge.playChannelFull === 'function');
+      var isCapNative = Boolean(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()) || isNativeAndroid;
+      if (isCapNative) return false;
+      return location.hostname === '127.0.0.1' || Boolean(window.DesktopBridge) || /Electron/i.test(navigator.userAgent || '');
+    }
+    window.ctvIsDesktopProxyAvailable = ctvIsDesktopProxyAvailable;
+
     function ctvGetRandomIp() {
       var b1 = Math.floor(Math.random() * 40) + 180;
       var b2 = Math.floor(Math.random() * 200) + 20;
@@ -69,8 +77,8 @@
     }
 
     async function ctvFetchPjBypass(targetUrl) {
-      // 1. Desktop proxy (solo en 127.0.0.1; en Android/iOS Capacitor usa localhost)
-      if (location.hostname === '127.0.0.1') {
+      // 1. Desktop proxy (nunca confundir con localhost de Capacitor en Android/iOS)
+      if (ctvIsDesktopProxyAvailable()) {
         for (var dAttempt = 0; dAttempt < 3; dAttempt++) {
           try {
             var pUrl = '/__ctv_proxy?url=' + encodeURIComponent(targetUrl) + '&ref=' + encodeURIComponent('https://pelisjuanita.com/');
@@ -892,7 +900,12 @@
     }
   }
 
-  window.ctvOnPlayerClose = cleanupSubs;
+  window.ctvOnPlayerClose = function () {
+    window.__ctvPlaySessionId = (window.__ctvPlaySessionId || 0) + 1;
+    cleanupSubs();
+    var pfClose = document.getElementById('player-frame');
+    if (pfClose) pfClose.removeAttribute('sandbox');
+  };
 
   function parseCookiesFromHeader(raw) {
     if (!raw) return '';
@@ -916,8 +929,8 @@
     var body = opts.body || '';
     var cookie = opts.cookie || '';
 
-    // 1. Desktop (Electron local server en 127.0.0.1; en Android/iOS Capacitor usa localhost)
-    if (location.hostname === '127.0.0.1') {
+    // 1. Desktop (Electron local server)
+    if (window.ctvIsDesktopProxyAvailable()) {
       try {
         var proxyUrl =
           '/__ctv_proxy?url=' + encodeURIComponent(targetUrl) +
@@ -1063,7 +1076,10 @@
       var t0 = Date.now();
       var solution = null;
       var batchSize = 16;
-      for (var base = 0; base < 12000 && !solution; base += batchSize) {
+      for (var n = 0; n < 12000 && !solution; n += batchSize) {
+        if (n > 0 && n % 64 === 0) {
+          await new Promise(function (r) { setTimeout(r, 0); });
+        }
         var tasks = [];
         for (var j = 0; j < batchSize; j++) {
           (function (counter) {
@@ -1079,7 +1095,7 @@
                   return { counter: counter, hex: bytesToHex(new Uint8Array(bits)) };
                 })
             );
-          })(base + j);
+          })(n + j);
         }
         var results = await Promise.all(tasks);
         for (var rIdx = 0; rIdx < results.length; rIdx++) {
@@ -1126,13 +1142,12 @@
       .replace(/["']hasAttribute["']/g, '"__ctvNoAttr"')
       .replace(/["']\/blocked["']/g, '"#"');
 
+    var ctvAntiSandboxSpoof = '<script>(function(){try{var rf=window.frameElement;if(rf){var oHas=Element.prototype.hasAttribute;Element.prototype.hasAttribute=function(n){if(this===rf&&String(n).toLowerCase()==="sandbox")return false;return oHas.call(this,n);};var oGet=Element.prototype.getAttribute;Element.prototype.getAttribute=function(n){if(this===rf&&String(n).toLowerCase()==="sandbox")return null;return oGet.call(this,n);};}Object.defineProperty(window,"frameElement",{get:function(){return null;},configurable:true});Object.defineProperty(window,"open",{value:function(){return{closed:false,focus:function(){},close:function(){},location:{}};},writable:true,configurable:true});}catch(e){}})();<\/script>';
+
     var shieldTag =
       (origin ? '<base href="' + origin + '/">' : '') +
-      '<script>' +
-      'window.cRAds=true;' +
-      'window.open=function(){return null;};' +
-      'try{Object.defineProperty(window,"frameElement",{get:function(){return null;}});}catch(e){}' +
-      '</script>';
+      ctvAntiSandboxSpoof +
+      '<script>window.cRAds=true;<\/script>';
 
     if (/<head[^>]*>/i.test(cleaned)) {
       cleaned = cleaned.replace(/<head[^>]*>/i, function (m) { return m + shieldTag; });
@@ -1691,6 +1706,28 @@
     return true;
   }
 
+  function ctvConfigureIframeSandbox(iframeEl, targetUrl, isSrcDoc) {
+    if (!iframeEl) return;
+    if (isSrcDoc) {
+      iframeEl.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-presentation');
+      return;
+    }
+    var u = String(targetUrl || '').toLowerCase();
+    var antiSandboxDomains = [
+      'vimeus', 'vimeos', 'pelisjuanita', 'morencius', 'vidara',
+      'vidsrc', 'vsembed', 'vidlink', 'multiembed', '2embed', 'nontongo',
+      'cloudnestra', 'streamwish', 'hlswish', 'wishembed', 'lulustream', 'luluvdo',
+      'vibuxer', 'hglink', 'callistanise', 'vidhide', 'mixdrop'
+    ];
+    var isElectron = Boolean(window.DesktopBridge || /Electron/i.test(navigator.userAgent || '') || window.ctvIsDesktopProxyAvailable());
+    var needsNoSandbox = isElectron || antiSandboxDomains.some(function (d) { return u.indexOf(d) !== -1; });
+    if (needsNoSandbox) {
+      iframeEl.removeAttribute('sandbox');
+    } else {
+      iframeEl.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-presentation');
+    }
+  }
+
   function openInCleanIframe(rawUrl, title) {
     cleanupSubs();
     if (typeof window.__ctvOpenModal === 'function') {
@@ -1709,7 +1746,7 @@
     }
     var f = document.getElementById('player-frame');
     if (f) {
-      f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-presentation');
+      ctvConfigureIframeSandbox(f, rawUrl, false);
       f.removeAttribute('referrerpolicy');
       try { f.removeAttribute('srcdoc'); } catch (e) {}
       f.classList.remove('hidden');
@@ -1719,12 +1756,15 @@
   }
 
   window.ctvPlaySmartEmbed = function (url, title, serverName, slug, resumeKey) {
+    window.__ctvPlaySessionId = (window.__ctvPlaySessionId || 0) + 1;
+    var currentPlaySession = window.__ctvPlaySessionId;
+
     var rawUrl = String(url || '');
     if (!rawUrl || rawUrl.indexOf('youtube.com/embed') >= 0) return false;
 
     var pFrameInit = document.getElementById('player-frame');
     if (pFrameInit) {
-      pFrameInit.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-presentation');
+      ctvConfigureIframeSandbox(pFrameInit, rawUrl, false);
       pFrameInit.removeAttribute('referrerpolicy');
     }
 
@@ -1740,6 +1780,7 @@
 
     var didFallback = false;
     function fallbackToIframe() {
+      if (window.__ctvPlaySessionId !== currentPlaySession) return;
       if (didFallback) return;
       didFallback = true;
       var modal = document.getElementById('player-modal');
@@ -1747,11 +1788,15 @@
       openInCleanIframe(rawUrl, title);
     }
 
-    var timeoutId = setTimeout(fallbackToIframe, 10000);
+    var timeoutId = setTimeout(function () {
+      if (window.__ctvPlaySessionId !== currentPlaySession) return;
+      fallbackToIframe();
+    }, 10000);
 
     extractDirectStream(rawUrl)
       .then(function (res) {
         clearTimeout(timeoutId);
+        if (window.__ctvPlaySessionId !== currentPlaySession) return;
         if (didFallback) return;
         var modal = document.getElementById('player-modal');
         if (!modal || modal.classList.contains('hidden')) return;
@@ -1761,10 +1806,28 @@
             window.__ctvPlayHls(res.url, title, fallbackToIframe);
             var vHls = document.getElementById('player-video');
             if (vHls) {
+              var started = false;
+              var stallTimer = null;
+              var onPlaying = function () {
+                started = true;
+                if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+                vHls.removeEventListener('playing', onPlaying);
+                vHls.removeEventListener('loadeddata', onPlaying);
+              };
+              vHls.addEventListener('playing', onPlaying);
+              vHls.addEventListener('loadeddata', onPlaying);
               vHls.onerror = function () {
                 vHls.onerror = null;
+                if (window.__ctvPlaySessionId !== currentPlaySession) return;
+                if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
                 fallbackToIframe();
               };
+              stallTimer = setTimeout(function () {
+                if (window.__ctvPlaySessionId !== currentPlaySession) return;
+                if (!started && !didFallback && vHls.readyState === 0 && !modal.classList.contains('hidden')) {
+                  fallbackToIframe();
+                }
+              }, 8000);
             }
             attachSubtitlesToVideo(res.tracks || []);
             return;
@@ -1778,6 +1841,7 @@
             v.classList.remove('hidden');
             v.onerror = function () {
               v.onerror = null;
+              if (window.__ctvPlaySessionId !== currentPlaySession) return;
               fallbackToIframe();
             };
             v.src = res.url;
@@ -1792,7 +1856,7 @@
           if (typeof window.__ctvOpenModal === 'function') window.__ctvOpenModal(title);
           var f = document.getElementById('player-frame');
           if (f) {
-            f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-presentation');
+            ctvConfigureIframeSandbox(f, '', true);
             f.removeAttribute('referrerpolicy');
             f.classList.remove('hidden');
             f.srcdoc = res.html;
@@ -1805,6 +1869,7 @@
       })
       .catch(function () {
         clearTimeout(timeoutId);
+        if (window.__ctvPlaySessionId !== currentPlaySession) return;
         fallbackToIframe();
       });
 
@@ -1920,7 +1985,7 @@
 
       function triggerDesktopAutoReplace(dlUrl) {
         if (!dlUrl) return;
-        if (location.hostname !== '127.0.0.1' && location.hostname !== 'localhost') {
+        if (!window.ctvIsDesktopProxyAvailable()) {
           window.open(dlUrl, '_blank');
           return;
         }
@@ -2103,84 +2168,142 @@
 
     var pFrame = document.getElementById('player-frame');
     if (pFrame) {
-      pFrame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-presentation');
+      if (pFrame.classList.contains('hidden')) pFrame.removeAttribute('sandbox');
       pFrame.removeAttribute('referrerpolicy');
     }
 
     // Navegación con control remoto D-Pad para el reproductor en Smart TV
-    if (!window.__ctvTvPlayerKeysBound) {
-      window.__ctvTvPlayerKeysBound = true;
-      document.addEventListener('keydown', function (e) {
-        var subsModal = document.getElementById('ctv-subs-modal');
-        if (subsModal) {
-          var subBtns = Array.prototype.slice.call(subsModal.querySelectorAll('button.focusable'));
-          if (!subBtns.length) return;
-          var sIdx = subBtns.indexOf(document.activeElement);
-          if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            e.stopPropagation();
-            subBtns[(sIdx + 1) % subBtns.length].focus();
-          } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            e.stopPropagation();
-            subBtns[(sIdx - 1 + subBtns.length) % subBtns.length].focus();
-          } else if (e.key === 'Escape' || e.key === 'Backspace') {
-            e.preventDefault();
-            e.stopPropagation();
-            subsModal.remove();
-            var ps = document.getElementById('player-subs');
-            if (ps) ps.focus();
+    if (window.__ctvDpadKeyHandler) {
+      window.removeEventListener('keydown', window.__ctvDpadKeyHandler, true);
+    }
+    window.__ctvDpadKeyHandler = function (e) {
+      var subsModal = document.getElementById('ctv-subs-modal');
+      if (subsModal) {
+        var subBtns = Array.prototype.slice.call(subsModal.querySelectorAll('button.focusable'));
+        var curIdx = subBtns.indexOf(document.activeElement);
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          var next = subBtns[curIdx + 1] || subBtns[0];
+          if (next) next.focus();
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          var prev = subBtns[curIdx - 1] || subBtns[subBtns.length - 1];
+          if (prev) prev.focus();
+          return;
+        }
+        if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'GoBack') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          subsModal.remove();
+          var ps = document.getElementById('player-subs');
+          if (ps && !ps.classList.contains('hidden')) ps.focus();
+          return;
+        }
+        return;
+      }
+
+      var pModal = document.getElementById('player-modal');
+      if (!pModal || pModal.classList.contains('hidden')) return;
+
+      var pBar = document.getElementById('player-bar');
+      var v = document.getElementById('player-video');
+      var f = document.getElementById('player-frame');
+      var isVideoActive = v && !v.classList.contains('hidden');
+      var active = document.activeElement;
+      var inBar = pBar && pBar.contains(active);
+
+      if (e.key === 'MediaPlayPause' || e.keyCode === 85 || e.keyCode === 179) {
+        if (isVideoActive) {
+          e.preventDefault();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          if (v.paused) v.play().catch(function () {});
+          else v.pause();
+        }
+        return;
+      }
+
+      if (inBar) {
+        var barBtns = Array.prototype.slice.call(pBar.querySelectorAll('.btn:not(.hidden)'));
+        var bIdx = barBtns.indexOf(active);
+        if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          if (bIdx >= 0 && bIdx < barBtns.length - 1) barBtns[bIdx + 1].focus();
+          return;
+        }
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          if (bIdx > 0) barBtns[bIdx - 1].focus();
+          return;
+        }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          if (isVideoActive) v.focus();
+          else if (f && !f.classList.contains('hidden')) f.focus();
+          return;
+        }
+        return;
+      }
+
+      if (isVideoActive) {
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          if (pBar) {
+            pBar.classList.remove('hidden');
+            pBar.style.opacity = '1';
+            var bFirst = pBar.querySelector('.btn:not(.hidden)');
+            if (bFirst) bFirst.focus();
           }
           return;
         }
-
-        var pModal = document.getElementById('player-modal');
-        if (!pModal || pModal.classList.contains('hidden')) return;
-        var pVideo = document.getElementById('player-video');
-        var isVideoActive = pVideo && !pVideo.classList.contains('hidden');
-        var barBtns = Array.prototype.slice.call(pModal.querySelectorAll('#player-bar button.focusable:not(.hidden)'));
-        var bIdx = barBtns.indexOf(document.activeElement);
-
-        if (e.key === 'ArrowUp') {
-          if (barBtns.length && bIdx < 0) {
-            e.preventDefault();
-            e.stopPropagation();
-            barBtns[0].focus();
-          }
-        } else if (e.key === 'ArrowDown') {
-          if (bIdx >= 0 && isVideoActive) {
-            e.preventDefault();
-            e.stopPropagation();
-            pVideo.focus();
-          }
-        } else if (e.key === 'ArrowLeft') {
-          if (bIdx > 0) {
-            e.preventDefault();
-            e.stopPropagation();
-            barBtns[bIdx - 1].focus();
-          } else if (bIdx < 0 && isVideoActive) {
-            e.preventDefault();
-            e.stopPropagation();
-            try { pVideo.currentTime = Math.max(0, (pVideo.currentTime || 0) - 10); } catch (err) {}
-          }
-        } else if (e.key === 'ArrowRight') {
-          if (bIdx >= 0 && bIdx < barBtns.length - 1) {
-            e.preventDefault();
-            e.stopPropagation();
-            barBtns[bIdx + 1].focus();
-          } else if (bIdx < 0 && isVideoActive) {
-            e.preventDefault();
-            e.stopPropagation();
-            try { pVideo.currentTime = (pVideo.currentTime || 0) + 10; } catch (err) {}
-          }
-        } else if ((e.key === 'Enter' || e.key === ' ' || e.key === 'MediaPlayPause') && bIdx < 0 && isVideoActive) {
+        if (e.key === 'ArrowLeft' || e.key === 'MediaRewind') {
           e.preventDefault();
           e.stopPropagation();
-          if (pVideo.paused) pVideo.play().catch(function () {});
-          else pVideo.pause();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          try { v.currentTime = Math.max(0, (v.currentTime || 0) - 10); } catch (x) {}
+          return;
         }
-      }, true);
-    }
+        if (e.key === 'ArrowRight' || e.key === 'MediaFastForward') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          try { v.currentTime = Math.min(v.duration || 999999, (v.currentTime || 0) + 10); } catch (x) {}
+          return;
+        }
+        if ((e.key === 'Enter' || e.key === ' ' || e.keyCode === 23) && (active === v || active === document.body || active === pModal)) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          if (v.paused) v.play().catch(function () {});
+          else v.pause();
+          return;
+        }
+      } else if (f && !f.classList.contains('hidden')) {
+        if (e.key === 'ArrowUp') {
+          if (pBar) {
+            pBar.classList.remove('hidden');
+            pBar.style.opacity = '1';
+            var bBack = document.getElementById('player-back');
+            if (bBack) bBack.focus();
+          }
+        }
+      }
+    };
+    window.addEventListener('keydown', window.__ctvDpadKeyHandler, true);
 
     // Adaptar textos largos del menú en pantallas estrechas para que las 7 pestañas nunca se corten
     function adaptResponsiveLabels() {
@@ -2204,25 +2327,41 @@
       var fn = new Function(code);
       fn();
     } catch (e) {
-      console.warn('Error ejecutando OTA:', e);
+      try {
+        var prevTag = document.getElementById('ctv-ota-live-script');
+        if (prevTag) prevTag.remove();
+        var sc = document.createElement('script');
+        sc.id = 'ctv-ota-live-script';
+        sc.textContent = code;
+        (document.head || document.documentElement).appendChild(sc);
+      } catch (e2) {
+        console.warn('Error ejecutando OTA:', e2);
+      }
     }
   }
 
   // 1. Ejecutar caché OTA instantáneamente al arrancar
+  var cached = '';
   try {
-    var cached = localStorage.getItem(OTA_CACHE_KEY);
+    cached = localStorage.getItem(OTA_CACHE_KEY) || '';
     if (cached) runOtaCode(cached);
   } catch (e) {}
 
-  // 2. Comprobar y descargar última versión OTA desde GitHub en segundo plano
+  // 2. Comprobar y descargar última versión OTA desde GitHub en segundo plano y aplicarla en caliente
   fetch(OTA_SCRIPT_URL + '?t=' + Date.now(), { cache: 'no-store' })
     .then(function (r) { return r.ok ? r.text() : ''; })
     .then(function (remoteCode) {
       if (!remoteCode || remoteCode.indexOf('CTV_OTA_VERSION') < 0) return;
+      var savedCode = cached;
       try {
-        localStorage.setItem(OTA_CACHE_KEY, remoteCode);
+        savedCode = localStorage.getItem(OTA_CACHE_KEY) || cached;
       } catch (e) {}
-      runOtaCode(remoteCode);
+      if (remoteCode !== savedCode || window.__ctvOtaExecuted !== remoteCode) {
+        try {
+          localStorage.setItem(OTA_CACHE_KEY, remoteCode);
+        } catch (e) {}
+        runOtaCode(remoteCode);
+      }
     })
     .catch(function () {});
 })();
