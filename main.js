@@ -96,6 +96,7 @@ const AD_DOMAINS = [
   'juicyads.com',
   'kadam.net',
   'livejasmin.com',
+  'llvpn.com',
   'mc.yandex.ru',
   'media.net',
   'mgid.com',
@@ -411,17 +412,29 @@ function proxyFetchRequest(targetUrl, options = {}, redirectCount = 0) {
         refOrigin = new URL(ref).origin;
       } catch {}
 
-      const reqHeaders = {
-        'User-Agent': USER_AGENT,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-        'Referer': ref,
-        'Origin': refOrigin,
-        'Sec-Fetch-Dest': 'iframe',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'cross-site',
-        ...(options.headers || {})
-      };
+      const isDailymotionReq = parsed.hostname.includes('dailymotion.com') || parsed.hostname.includes('dmcdn.net');
+      const reqHeaders = isDailymotionReq
+        ? {
+            'Host': parsed.host,
+            'User-Agent': USER_AGENT,
+            'Accept': '*/*',
+            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+            'Referer': 'https://www.dailymotion.com/',
+            'Origin': 'https://www.dailymotion.com',
+            ...(options.headers || {})
+          }
+        : {
+            'Host': parsed.host,
+            'User-Agent': USER_AGENT,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+            'Referer': ref,
+            'Origin': refOrigin,
+            'Sec-Fetch-Dest': 'iframe',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'cross-site',
+            ...(options.headers || {})
+          };
 
       if (parsed.hostname.includes('pelisjuanita.com')) {
         const rndIp = `187.${Math.floor(Math.random() * 200) + 20}.${Math.floor(Math.random() * 240) + 10}.${Math.floor(Math.random() * 240) + 10}`;
@@ -686,7 +699,10 @@ function configureSessionSecurityAndAdblock() {
         headers['X-Real-IP'] = rndIp;
         headers['Client-IP'] = rndIp;
       }
-      if (needsPjReferer) {
+      if (reqUrl.includes('dailymotion.com') || reqUrl.includes('dmcdn.net')) {
+        headers['Referer'] = 'https://www.dailymotion.com/';
+        headers['Origin'] = 'https://www.dailymotion.com';
+      } else if (needsPjReferer) {
         headers['Referer'] = 'https://pelisjuanita.com/';
         if (reqUrl.includes('workers.dev')) {
           headers['Sec-Fetch-Dest'] = 'iframe';
