@@ -5,7 +5,7 @@
  */
 (function () {
   var prevOtaVer = window.CTV_OTA_VERSION || '';
-  window.CTV_OTA_VERSION = '1.6.0-ota.9';
+  window.CTV_OTA_VERSION = '1.6.0-ota.10';
 
   function ctvIsDesktopProxyAvailable() {
     var isNativeAndroid = Boolean(window.AndroidBridge && typeof window.AndroidBridge.playChannelFull === 'function');
@@ -250,14 +250,18 @@
         var isFav = cur ? ctvIsItemFavorite(cur) : false;
         var pFav = document.getElementById('player-fav');
         if (pFav) {
-          pFav.textContent = isFav ? '★' : '☆';
-          pFav.style.color = isFav ? '#ffd700' : '';
-          pFav.classList.toggle('is-fav', isFav);
+          var pText = isFav ? '★' : '☆';
+          if (pFav.textContent !== pText) pFav.textContent = pText;
+          var pColor = isFav ? 'rgb(255, 215, 0)' : '';
+          if (isFav && pFav.style.color !== '#ffd700' && pFav.style.color !== pColor) pFav.style.color = '#ffd700';
+          else if (!isFav && pFav.style.color) pFav.style.color = '';
+          if (pFav.classList.contains('is-fav') !== isFav) pFav.classList.toggle('is-fav', isFav);
         }
         var dFav = document.getElementById('detail-fav');
         if (dFav && cur && cur.kind !== 'tv') {
-          dFav.textContent = isFav ? '★ Favorito' : '☆ Favorito';
-          dFav.classList.toggle('is-fav', isFav);
+          var dText = isFav ? '★ Favorito' : '☆ Favorito';
+          if (dFav.textContent !== dText) dFav.textContent = dText;
+          if (dFav.classList.contains('is-fav') !== isFav) dFav.classList.toggle('is-fav', isFav);
         }
         var favMovieSlugs = new Set(ctvReadFavList('pj2_favs_movies').map(function (x) { return x && x.slug; }).filter(Boolean));
         var favSerieSlugs = new Set(ctvReadFavList('pj2_favs_series').map(function (x) { return x && x.slug; }).filter(Boolean));
@@ -3461,10 +3465,12 @@
     function ctvBindMovieCardsInContainer(root) {
       if (!root || !root.querySelectorAll) return;
       var cards = root.querySelectorAll('.card.movie');
+      var anyBound = false;
       cards.forEach(function (card) {
-        var item = ctvGuessCardItem(card);
         if (card.__ctvFavBound) return;
+        var item = ctvGuessCardItem(card);
         card.__ctvFavBound = true;
+        anyBound = true;
 
         var touchTimer = null;
         var keyTimer = null;
@@ -3538,7 +3544,7 @@
           }
         }, true);
       });
-      if (typeof window.ctvUpdateFavButtonsUI === 'function') {
+      if (anyBound && typeof window.ctvUpdateFavButtonsUI === 'function') {
         window.ctvUpdateFavButtonsUI();
       }
     }
@@ -3707,23 +3713,38 @@
     if (window.__ctvDomEnhancerObserver) {
       window.__ctvDomEnhancerObserver.disconnect();
     }
-    window.__ctvDomEnhancerObserver = new MutationObserver(function () {
-      var fModal = document.getElementById('filter-modal');
-      if (fModal) ctvInjectMexicanSectionInFilterModal(fModal);
-      ctvInjectQuickMxPillInFilterBar();
-      var contentEl = document.getElementById('content');
-      if (contentEl) ctvBindMovieCardsInContainer(contentEl);
-      var detailBody = document.getElementById('detail-body');
-      if (detailBody && detailBody.querySelector('#detail-fav') && typeof window.ctvUpdateFavButtonsUI === 'function') {
-        window.ctvUpdateFavButtonsUI();
+    var ctvEnhancerTimer = null;
+    function ctvRunDomEnhancersSafe() {
+      ctvEnhancerTimer = null;
+      if (window.__ctvDomEnhancerObserver) {
+        try { window.__ctvDomEnhancerObserver.disconnect(); } catch (e) {}
       }
+      try {
+        var fModal = document.getElementById('filter-modal');
+        if (fModal) ctvInjectMexicanSectionInFilterModal(fModal);
+        ctvInjectQuickMxPillInFilterBar();
+        var contentEl = document.getElementById('content');
+        if (contentEl) ctvBindMovieCardsInContainer(contentEl);
+        var detailBody = document.getElementById('detail-body');
+        if (detailBody && detailBody.querySelector('#detail-fav') && typeof window.ctvUpdateFavButtonsUI === 'function') {
+          window.ctvUpdateFavButtonsUI();
+        }
+      } catch (e) {
+      } finally {
+        if (window.__ctvDomEnhancerObserver && document.body) {
+          try { window.__ctvDomEnhancerObserver.observe(document.body, { childList: true, subtree: true }); } catch (e) {}
+        }
+      }
+    }
+    window.__ctvDomEnhancerObserver = new MutationObserver(function () {
+      if (ctvEnhancerTimer) return;
+      ctvEnhancerTimer = setTimeout(ctvRunDomEnhancersSafe, 80);
     });
-    window.__ctvDomEnhancerObserver.observe(document.body, { childList: true, subtree: true });
+    if (document.body) {
+      window.__ctvDomEnhancerObserver.observe(document.body, { childList: true, subtree: true });
+    }
 
-    var initContent = document.getElementById('content');
-    if (initContent) ctvBindMovieCardsInContainer(initContent);
-    ctvInjectQuickMxPillInFilterBar();
-    if (typeof window.ctvUpdateFavButtonsUI === 'function') window.ctvUpdateFavButtonsUI();
+    setTimeout(ctvRunDomEnhancersSafe, 100);
   } catch (e) {}
 
   // 8. Si la vista actual quedó con "Error de red" por un parche OTA previo en caché, recargar automáticamente la sección activa
