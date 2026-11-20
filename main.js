@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session, shell } = require('electron');
+const { app, BrowserWindow, session, shell, ipcMain, webFrameMain } = require('electron');
 const path = require('path');
 const http = require('http');
 const https = require('https');
@@ -6,22 +6,79 @@ const fs = require('fs');
 const os = require('os');
 const { spawn } = require('child_process');
 
+/* ============================================================================
+ * 1. CONFIGURACIÓN DE PLATAFORMA Y ACELERACIÓN POR HARDWARE (GPU)
+ * ============================================================================ */
 const USER_AGENT =
   'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36';
+const MAX_CACHE_BYTES = 180 * 1024 * 1024; // 180 MB límite en disco
+const MAX_PROXY_BODY_BYTES = 15 * 1024 * 1024; // 15 MB límite seguro por respuesta proxy
+
+const ALLOWED_UPDATE_PREFIXES = [
+  'https://github.com/Demon11701/CTV-Desktop/',
+  'https://objects.githubusercontent.com/',
+  'https://release-assets.githubusercontent.com/'
+];
 
 app.userAgentFallback = USER_AGENT;
 
-// Detect Linux / Wayland (e.g., Hyprland, Sway, GNOME/KDE Wayland) and enable Ozone + VA-API hardware acceleration
-const isLinux = process.platform === 'linux';
-if (isLinux) {
-  app.commandLine.appendSwitch('enable-features', 'UseOzonePlatform,VaapiVideoDecodeLinuxGL');
-  app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
-  app.commandLine.appendSwitch('ignore-gpu-blocklist');
-  app.commandLine.appendSwitch('enable-gpu-rasterization');
+function configureHardwareAcceleration() {
+  const isLinux = process.platform === 'linux';
+  const isWin = process.platform === 'win32';
+
+  // Opción de emergencia explícita para forzar renderizado por software si el usuario lo solicita
+  if (process.env.CTV_DISABLE_GPU === '1') {
+    app.disableHardwareAcceleration();
+  }
+
+  // Control razonable de caché en disco para evitar crecimiento infinito
+  app.commandLine.appendSwitch('disk-cache-size', String(MAX_CACHE_BYTES));
+  app.commandLine.appendSwitch('media-cache-size', String(100 * 1024 * 1024));
+  // Autoplay fluido para canales y streams sin gesto adicional
+  app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
+  if (isLinux) {
+    const isWayland =
+      String(process.env.XDG_SESSION_TYPE || '').toLowerCase() === 'wayland' ||
+      Boolean(process.env.WAYLAND_DISPLAY);
+    const isNvidiaOffload =
+      process.env.__NV_PRIME_RENDER_OFFLOAD === '1' ||
+      String(process.env.__GLX_VENDOR_LIBRARY_NAME || '').toLowerCase() === 'nvidia' ||
+      String(process.env.GBM_BACKEND || '').toLowerCase().includes('nvidia') ||
+      String(process.env.LIBVA_DRIVER_NAME || '').toLowerCase() === 'nvidia';
+
+    // Mantener fallback limpio a X11/XWayland y decodificación segura sin forzar VA-API, Vulkan ni --use-gl
+    // (evita pantalla negra de video en portátiles híbridos Intel + NVIDIA Optimus / prime-run bajo Hyprland)
+    const linuxFeatures = [];
+    if (isWayland) {
+      app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
+      // Evita conflicto conocido de Electron/Chromium Ozone-Wayland con Vulkan en Hyprland/Optimus
+      app.commandLine.appendSwitch('disable-features', 'Vulkan');
+      linuxFeatures.push('WaylandWindowDecorations');
+    }
+    // Opt-in manual para VA-API moderno únicamente fuera de NVIDIA offload
+    if (process.env.CTV_ENABLE_VAAPI === '1' && !isNvidiaOffload) {
+      linuxFeatures.push('AcceleratedVideoDecodeLinuxGL', 'AcceleratedVideoDecodeLinuxZeroCopyGL');
+    }
+    if (linuxFeatures.length > 0) {
+      app.commandLine.appendSwitch('enable-features', linuxFeatures.join(','));
+    }
+  } else if (isWin) {
+    // Decodificación hardware estándar en Windows respetando la GPU blocklist de Chromium para fallback seguro
+    app.commandLine.appendSwitch(
+      'enable-features',
+      'D3D11VideoDecoder,PlatformHEVCDecoderSupport'
+    );
+  }
 }
 
-// Allow autoplay without user gesture for seamless channel/stream playback
-app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+configureHardwareAcceleration();
+
+// Evitar instancias duplicadas / procesos zombi en Windows y Linux
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -37,7 +94,9 @@ const MIME_TYPES = {
   '.woff2': 'font/woff2'
 };
 
-// Comprehensive list of ad/popunder/tracker domains (from CTV.apk + streaming embed ad networks)
+/* ============================================================================
+ * 2. RED, BLOQUEO DE ANUNCIOS O(labels) Y ESCUDO ANTI-SANDBOX / PROXY
+ * ============================================================================ */
 const AD_DOMAINS = [
   '33across.com',
   'a-ads.com',
@@ -144,6 +203,9 @@ const AD_DOMAINS = [
   'yllix.com'
 ];
 
+// Búsqueda O(labels) mediante Set en lugar de escaneo lineal O(N) por cada petición
+const AD_DOMAIN_SET = new Set(AD_DOMAINS);
+
 const AD_PATH_PATTERNS = [
   /\/pop(?:under|up)\.js(\?|$)/i,
   /\/ad(?:s|server|manager|vast|block|loader)\.js(\?|$)/i,
@@ -161,11 +223,14 @@ function isAdUrl(rawUrl) {
   try {
     const parsed = new URL(rawUrl);
     const host = parsed.hostname.toLowerCase();
-    for (let i = 0; i < AD_DOMAINS.length; i++) {
-      const d = AD_DOMAINS[i];
-      if (host === d || host.endsWith('.' + d)) {
-        return true;
-      }
+    // Verificar dominio exacto y sufijos padre en O(labels)
+    let dotIdx = -1;
+    let candidate = host;
+    while (candidate) {
+      if (AD_DOMAIN_SET.has(candidate)) return true;
+      dotIdx = candidate.indexOf('.');
+      if (dotIdx < 0) break;
+      candidate = candidate.slice(dotIdx + 1);
     }
     const fullPath = parsed.pathname + parsed.search;
     for (let i = 0; i < AD_PATH_PATTERNS.length; i++) {
@@ -177,7 +242,7 @@ function isAdUrl(rawUrl) {
   return false;
 }
 
-// In-frame cosmetic & scriptlet ad-shield (extracted from CTV.apk + safe click-hijack killer)
+// In-frame cosmetic & scriptlet ad-shield optimizado (MutationObserver + rAF en lugar de polling agresivo de 500ms)
 const EMBED_ADBLOCK_SCRIPT = `
 (function() {
   if (window.__pjAd) return;
@@ -195,7 +260,7 @@ const EMBED_ADBLOCK_SCRIPT = `
 
   try {
     var st = document.createElement('style');
-    st.textContent = '#adbd, #play_limit_box, .overdiv { display: none !important; }';
+    st.textContent = '#adbd, #play_limit_box, .overdiv, #first-click-ad { display: none !important; }';
     (document.head || document.documentElement).appendChild(st);
   } catch (e) {}
 
@@ -214,7 +279,12 @@ const EMBED_ADBLOCK_SCRIPT = `
     }, true);
   } catch (e) {}
 
+  var rafPending = false;
+  var cleaning = false;
   function cleanOverlaysAndSkipAds() {
+    rafPending = false;
+    if (document.hidden || cleaning) return;
+    cleaning = true;
     try {
       var d = document;
       // 1. Remove invisible click-hijack anchors (<a target="_blank">) and <ins> ad slots without touching player divs/iframes
@@ -223,10 +293,14 @@ const EMBED_ADBLOCK_SCRIPT = `
         var el = anchors[j];
         try {
           if (el.querySelector('video')) continue;
+          if (el.tagName === 'INS') {
+            el.remove();
+            continue;
+          }
           var style = window.getComputedStyle(el);
           var z = parseInt(style.zIndex, 10) || 0;
           var pos = style.position;
-          if (el.tagName === 'INS' || ((pos === 'fixed' || pos === 'absolute') && (el.target === '_blank' || z > 50))) {
+          if ((pos === 'fixed' || pos === 'absolute') && (el.target === '_blank' || z > 50)) {
             el.remove();
           }
         } catch (e2) {}
@@ -272,17 +346,46 @@ const EMBED_ADBLOCK_SCRIPT = `
           } catch (e2) {}
         }
       }
-    } catch (e) {}
+    } catch (e) {
+    } finally {
+      cleaning = false;
+    }
   }
 
-  setInterval(cleanOverlaysAndSkipAds, 500);
+  function scheduleClean() {
+    if (rafPending || cleaning || document.hidden) return;
+    rafPending = true;
+    (window.requestAnimationFrame || setTimeout)(cleanOverlaysAndSkipAds, 16);
+  }
+
+  try {
+    var obsRoot = document.body || document.documentElement;
+    if (obsRoot && typeof MutationObserver !== 'undefined') {
+      var obs = new MutationObserver(scheduleClean);
+      obs.observe(obsRoot, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style', 'class', 'hidden']
+      });
+      window.addEventListener('pagehide', function() { try { obs.disconnect(); } catch (e) {} }, { once: true });
+    }
+  } catch (e) {}
+
+  var fallbackTimer = setInterval(scheduleClean, 1500);
+  window.addEventListener('pagehide', function() { clearInterval(fallbackTimer); }, { once: true });
   cleanOverlaysAndSkipAds();
 })();
 `;
 
 let mainWindow = null;
 let localServer = null;
+let sessionConfigured = false;
 let selfUpdateState = { state: 'idle', percent: 0, error: '' };
+
+function isAllowedUpdateUrl(url) {
+  return typeof url === 'string' && ALLOWED_UPDATE_PREFIXES.some((p) => url.startsWith(p));
+}
 
 function getSelfExecutablePath() {
   if (process.env.APPIMAGE) return process.env.APPIMAGE;
@@ -338,6 +441,9 @@ function downloadFileWithProgress(url, destPath, onProgress, redirectCount = 0) 
         });
       }
     );
+    req.on('timeout', () => {
+      req.destroy(new Error('Tiempo de descarga agotado'));
+    });
     req.on('error', (err) => {
       try { fs.unlinkSync(destPath); } catch {}
       reject(err);
@@ -346,11 +452,15 @@ function downloadFileWithProgress(url, destPath, onProgress, redirectCount = 0) 
 }
 
 function startDesktopSelfUpdate(downloadUrl) {
-  if (selfUpdateState.state === 'downloading') return;
+  if (!isAllowedUpdateUrl(downloadUrl)) {
+    selfUpdateState = { state: 'error', percent: 0, error: 'URL de actualización no permitida' };
+    return selfUpdateState;
+  }
+  if (selfUpdateState.state === 'downloading') return selfUpdateState;
   const targetExe = getSelfExecutablePath();
   if (!targetExe) {
     selfUpdateState = { state: 'error', percent: 0, error: 'Modo desarrollo (sin ejecutable empaquetado)' };
-    return;
+    return selfUpdateState;
   }
 
   const tempFile = targetExe + '.update-tmp';
@@ -394,6 +504,8 @@ function startDesktopSelfUpdate(downloadUrl) {
         error: String((err && err.message) || err)
       };
     });
+
+  return selfUpdateState;
 }
 
 function proxyFetchRequest(targetUrl, options = {}, redirectCount = 0) {
@@ -404,6 +516,10 @@ function proxyFetchRequest(targetUrl, options = {}, redirectCount = 0) {
     }
     try {
       const parsed = new URL(targetUrl);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        reject(new Error('Unsupported protocol'));
+        return;
+      }
       const client = parsed.protocol === 'https:' ? https : http;
       const method = (options.method || 'GET').toUpperCase();
       const ref = options.referer || 'https://pelisjuanita.com/';
@@ -462,8 +578,20 @@ function proxyFetchRequest(targetUrl, options = {}, redirectCount = 0) {
           }
 
           const chunks = [];
-          res.on('data', (c) => chunks.push(c));
+          let totalBytes = 0;
+          let aborted = false;
+          res.on('data', (c) => {
+            totalBytes += c.length;
+            if (totalBytes > MAX_PROXY_BODY_BYTES) {
+              aborted = true;
+              res.destroy(new Error('Response too large'));
+              return;
+            }
+            chunks.push(c);
+          });
+          res.on('error', (err) => reject(err));
           res.on('end', () => {
+            if (aborted) return;
             const body = Buffer.concat(chunks).toString('utf-8');
             const rawSc = res.headers['set-cookie'];
             const cookies = Array.isArray(rawSc)
@@ -497,18 +625,23 @@ function proxyFetchRequest(targetUrl, options = {}, redirectCount = 0) {
 }
 
 function startLocalServer(rootDir) {
+  if (localServer) {
+    const addr = localServer.address();
+    if (addr && addr.port) {
+      return Promise.resolve(`http://127.0.0.1:${addr.port}/index.html`);
+    }
+  }
   return new Promise((resolve) => {
     const server = http.createServer(async (req, res) => {
       try {
         const parsedUrl = new URL(req.url, 'http://127.0.0.1');
         let pathname = decodeURIComponent(parsedUrl.pathname);
 
-        // Local proxy endpoint for Referer-protected embeds & stream extractors (e.g. seriesplayer.fortamomar.workers.dev)
         if (pathname === '/__ctv_self_update') {
           const dlUrl = parsedUrl.searchParams.get('url');
-          if (!dlUrl) {
+          if (!dlUrl || !isAllowedUpdateUrl(dlUrl)) {
             res.writeHead(400, { 'Access-Control-Allow-Origin': '*' });
-            res.end(JSON.stringify({ ok: false, error: 'Missing url' }));
+            res.end(JSON.stringify({ ok: false, error: 'URL inválida o no permitida' }));
             return;
           }
           startDesktopSelfUpdate(dlUrl);
@@ -615,9 +748,11 @@ function startLocalServer(rootDir) {
             return;
           }
           const ext = path.extname(filePath).toLowerCase();
+          const isHashedAsset = safePath.startsWith(path.join('assets', ''));
           res.writeHead(200, {
             'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
-            'Access-Control-Allow-Origin': '*'
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': isHashedAsset ? 'public, max-age=86400' : 'no-cache'
           });
           res.end(data);
         });
@@ -636,7 +771,10 @@ function startLocalServer(rootDir) {
 }
 
 function configureSessionSecurityAndAdblock() {
-  // 1. Network-level Ad & Popunder Blocker
+  if (sessionConfigured) return;
+  sessionConfigured = true;
+
+  // 1. Network-level Ad & Popunder Blocker (O(labels) lookup)
   session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
     if (isAdUrl(details.url)) {
       callback({ cancel: true });
@@ -733,10 +871,91 @@ function configureSessionSecurityAndAdblock() {
     }
     callback({ responseHeaders });
   });
+
+  // 4. Higiene automática de caché en segundo plano (sin bloquear arranque)
+  setTimeout(() => {
+    session.defaultSession
+      .getCacheSize()
+      .then((size) => {
+        if (size > MAX_CACHE_BYTES) {
+          return session.defaultSession.clearCache();
+        }
+      })
+      .catch(() => {});
+  }, 6000);
 }
 
+/* ============================================================================
+ * 3. CANALES IPC VALIDADOS (SIN LISTENERS DUPLICADOS)
+ * ============================================================================ */
+function registerIpcHandlers() {
+  const channels = [
+    'ctv:toggle-fullscreen',
+    'ctv:set-fullscreen',
+    'ctv:is-fullscreen',
+    'ctv:get-runtime-info',
+    'ctv:clear-cache',
+    'ctv:self-update',
+    'ctv:self-update-status'
+  ];
+  channels.forEach((ch) => {
+    try { ipcMain.removeHandler(ch); } catch {}
+  });
+
+  ipcMain.handle('ctv:toggle-fullscreen', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    const next = !mainWindow.isFullScreen();
+    mainWindow.setFullScreen(next);
+    return next;
+  });
+
+  ipcMain.handle('ctv:set-fullscreen', (_event, enabled) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    const next = Boolean(enabled);
+    if (mainWindow.isFullScreen() !== next) {
+      mainWindow.setFullScreen(next);
+    }
+    return next;
+  });
+
+  ipcMain.handle('ctv:is-fullscreen', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    return mainWindow.isFullScreen();
+  });
+
+  ipcMain.handle('ctv:get-runtime-info', () => ({
+    version: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
+    isPackaged: app.isPackaged
+  }));
+
+  ipcMain.handle('ctv:clear-cache', async () => {
+    try {
+      await session.defaultSession.clearCache();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) };
+    }
+  });
+
+  ipcMain.handle('ctv:self-update', (_event, downloadUrl) => {
+    if (!isAllowedUpdateUrl(downloadUrl)) {
+      return { ok: false, error: 'URL de actualización no permitida' };
+    }
+    const state = startDesktopSelfUpdate(downloadUrl);
+    return { ok: state.state !== 'error', state };
+  });
+
+  ipcMain.handle('ctv:self-update-status', () => selfUpdateState);
+}
+
+/* ============================================================================
+ * 4. VENTANA PRINCIPAL (ZERO-FLICKER) Y CICLO DE VIDA
+ * ============================================================================ */
 async function createWindow() {
   configureSessionSecurityAndAdblock();
+  registerIpcHandlers();
   const appUrl = await startLocalServer(path.join(__dirname, 'src'));
 
   mainWindow = new BrowserWindow({
@@ -744,27 +963,43 @@ async function createWindow() {
     height: 720,
     minWidth: 320,
     minHeight: 300,
+    show: false, // Evita parpadeo blanco/negro hasta que el primer frame esté pintado
     title: 'CTV',
     backgroundColor: '#000000',
     autoHideMenuBar: true,
     fullscreenable: true,
     icon: path.join(__dirname, 'build', 'icons', 'icon.png'),
     webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
       webSecurity: false,
       allowRunningInsecureContent: true,
-      spellcheck: false
+      spellcheck: false,
+      backgroundThrottling: true
     }
   });
 
   mainWindow.setMenuBarVisibility(false);
 
+  let shown = false;
+  const revealWindow = () => {
+    if (shown || !mainWindow || mainWindow.isDestroyed()) return;
+    shown = true;
+    mainWindow.show();
+    mainWindow.focus();
+  };
+
+  mainWindow.once('ready-to-show', revealWindow);
+  const revealFallbackTimer = setTimeout(revealWindow, 2500);
+
   // Toggle fullscreen with F11 or Alt+Enter
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown') {
       if (input.key === 'F11' || (input.alt && input.key === 'Enter')) {
-        mainWindow.setFullScreen(!mainWindow.isFullScreen());
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.setFullScreen(!mainWindow.isFullScreen());
+        }
         event.preventDefault();
       }
     }
@@ -806,12 +1041,11 @@ async function createWindow() {
   });
 
   // Inject cosmetic & video ad-blocker script into every embed subframe
-  mainWindow.webContents.on('did-frame-finish-load', (event, isMainFrame, frameProcessId, frameRoutingId) => {
+  mainWindow.webContents.on('did-frame-finish-load', (_event, isMainFrame, frameProcessId, frameRoutingId) => {
     if (!isMainFrame) {
       try {
-        const { webFrameMain } = require('electron');
         const frame = webFrameMain.fromId(frameProcessId, frameRoutingId);
-        if (frame && !frame.url.startsWith('http://127.0.0.1')) {
+        if (frame && frame.url && !frame.url.startsWith('http://127.0.0.1')) {
           frame.executeJavaScript(EMBED_ADBLOCK_SCRIPT).catch(() => {});
         }
       } catch {}
@@ -821,29 +1055,59 @@ async function createWindow() {
   mainWindow.loadURL(appUrl);
 
   mainWindow.on('closed', () => {
+    clearTimeout(revealFallbackTimer);
     mainWindow = null;
   });
 }
 
-app.whenReady().then(() => {
-  createWindow();
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
-  });
-});
-
-app.windowAllClosedHandler = () => {
+function cleanupResources() {
   if (localServer) {
     try {
       localServer.close();
     } catch {}
+    localServer = null;
   }
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-};
+  // Asegurar que no queden ventanas secundarias huérfanas
+  try {
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (win && !win.isDestroyed()) {
+        try { win.destroy(); } catch {}
+      }
+    });
+  } catch {}
+}
 
-app.on('window-all-closed', app.windowAllClosedHandler);
+if (gotSingleInstanceLock) {
+  app.on('second-instance', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+
+  app.whenReady().then(() => {
+    createWindow();
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
+  });
+
+  app.on('before-quit', () => {
+    if (localServer) {
+      try { localServer.close(); } catch {}
+      localServer = null;
+    }
+  });
+
+  app.windowAllClosedHandler = () => {
+    cleanupResources();
+    if (process.platform !== 'darwin') {
+      app.quit();
+    }
+  };
+
+  app.on('window-all-closed', app.windowAllClosedHandler);
+}
