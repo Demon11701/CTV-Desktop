@@ -16,8 +16,9 @@
     "productName": "CTV",
     "files": [
       "main.js",
+      "preload.js",
       "src/**/*",
-      "build/icons/**/*"
+      "build/icons/icon.png"
     ],
     "directories": {
       "buildResources": "build",

@@ -9,14 +9,41 @@
   <meta name="theme-color" content="#000000" />
   <title>CTV</title>
   <link rel="icon" type="image/png" href="./assets/logo-C0-uO6lu.png" />
+  <link rel="preconnect" href="https://pelisjuanita.com" crossorigin />
+  <link rel="dns-prefetch" href="https://pelisjuanita.com" />
+  <link rel="preconnect" href="https://image.tmdb.org" crossorigin />
+  <link rel="dns-prefetch" href="https://image.tmdb.org" />
+  <link rel="dns-prefetch" href="https://raw.githubusercontent.com" />
+  <link rel="dns-prefetch" href="https://api.github.com" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet" /></noscript>
+  <style id="ctv-boot-style">
+    html,body{background:#000;color:#fff;margin:0;padding:0}
+    #ctv-splash{position:fixed;inset:0;z-index:100050;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:radial-gradient(circle at 50% 42%,#171026 0%,#050508 62%,#000 100%);transition:opacity .28s ease,transform .28s ease;will-change:opacity,transform}
+    #ctv-splash.ctv-splash-hide{opacity:0;transform:scale(1.02);pointer-events:none}
+    .ctv-splash-logo{width:76px;height:76px;border-radius:18px;box-shadow:0 0 38px rgba(176,76,242,.48)}
+    .ctv-splash-brand{font:800 1.45rem/1 system-ui,-apple-system,sans-serif;letter-spacing:-.4px;color:#fff}
+    .ctv-splash-brand span{color:#b04cf2}
+    .ctv-splash-bar{width:136px;height:3px;border-radius:999px;background:rgba(255,255,255,.12);overflow:hidden;position:relative}
+    .ctv-splash-bar::after{content:"";position:absolute;inset:0;width:46%;border-radius:999px;background:linear-gradient(90deg,#7c3aed,#c084fc);animation:ctvBootSlide 1.05s ease-in-out infinite;will-change:transform}
+    @keyframes ctvBootSlide{0%{transform:translateX(-110%)}100%{transform:translateX(240%)}}
+    @media (prefers-reduced-motion:reduce){#ctv-splash{transition:none}.ctv-splash-bar::after{animation:none;width:100%;opacity:.65}}
+  </style>
   <script src="./desktop-bridge.js"></script>
-  <script type="module" crossorigin src="./assets/index-BhZlhT-V.js"></script>
   <link rel="stylesheet" crossorigin href="./assets/index-COuAP1-u.css">
+  <script defer src="./ctv-ui.js"></script>
+  <script type="module" crossorigin src="./assets/index-BhZlhT-V.js"></script>
 </head>
 <body>
+  <!-- Splash instantáneo Zero-Blank-Screen -->
+  <div id="ctv-splash" role="status" aria-label="Cargando CTV">
+    <img src="./assets/logo-C0-uO6lu.png" alt="CTV" class="ctv-splash-logo" width="76" height="76" decoding="async" fetchpriority="high" />
+    <div class="ctv-splash-brand">C<span>TV</span></div>
+    <div class="ctv-splash-bar" aria-hidden="true"></div>
+  </div>
+
   <!-- Aviso si ponen el móvil en vertical -->
   <div id="rotate-warning" class="rotate-warning hidden">
     <div class="rotate-box">
@@ -30,7 +57,7 @@
     <!-- ============ MENU LATERAL IZQUIERDO ============ -->
     <aside id="sidebar" class="sidebar">
       <div class="brand">
-        <img src="./assets/logo-C0-uO6lu.png" alt="CTV" class="brand-logo" />
+        <img src="./assets/logo-C0-uO6lu.png" alt="CTV" class="brand-logo" width="46" height="46" decoding="async" />
         <div class="brand-titles">
           <h1 class="brand-title">C<span>TV</span></h1>
           <span class="brand-sub" id="brand-sub"></span>
@@ -92,7 +119,7 @@
     <!-- ============ PANEL PRINCIPAL DERECHA ============ -->
     <main id="main" class="main">
       <header class="topbar">
-        <h2 id="section-title" class="section-title">TV en vivo</h2>
+        <h2 id="section-title" class="section-title">Inicio</h2>
         <div class="search">
           <span class="search-icon">⌕</span>
           <input id="search-input" class="focusable" type="text" placeholder="Buscar..." autocomplete="off" tabindex="0" />
@@ -123,7 +150,7 @@
   <!-- Modal de actualización (actualizador in-app) -->
   <div id="update-modal" class="modal hidden">
     <div class="dialog update-dialog">
-      <img src="./assets/logo-C0-uO6lu.png" alt="CTV" class="update-logo" />
+      <img src="./assets/logo-C0-uO6lu.png" alt="CTV" class="update-logo" loading="lazy" decoding="async" />
       <div class="update-tag">NUEVA VERSIÓN DISPONIBLE</div>
       <h3 id="update-version-title">CTV</h3>
       <p class="dialog-sub" id="update-changelog">Hay una nueva versión disponible.</p>
@@ -172,7 +199,5 @@
     <iframe id="player-frame" class="player-frame hidden" allowfullscreen allow="autoplay; fullscreen; encrypted-media; picture-in-picture"></iframe>
     <video id="player-video" class="player-frame hidden" controls playsinline preload="auto"></video>
   </div>
-
-  <script src="./ctv-ui.js"></script>
 </body>
 </html>
