@@ -16,14 +16,36 @@ function isValidUpdateUrl(url) {
   return ALLOWED_UPDATE_PREFIXES.some((prefix) => url.startsWith(prefix));
 }
 
+function resolveAppVersionFromArgs() {
+  const eVer = (process.versions && process.versions.electron) || '';
+  try {
+    const arg = (process.argv || []).find((a) => typeof a === 'string' && a.startsWith('--ctv-app-version='));
+    if (arg) {
+      const val = (arg.split('=')[1] || '').trim();
+      if (val && val !== eVer) return val;
+    }
+  } catch {}
+  return '1.6.1';
+}
+
+const APP_VERSION = resolveAppVersionFromArgs();
+const ELECTRON_VERSION = (process.versions && process.versions.electron) || '';
+
 contextBridge.exposeInMainWorld('DesktopBridge', Object.freeze({
   isDesktop: true,
   platform: process.platform,
+  appVersion: APP_VERSION,
+  electronVersion: ELECTRON_VERSION,
   toggleFullscreen: () => ipcRenderer.invoke('ctv:toggle-fullscreen'),
   setFullscreen: (enabled) => ipcRenderer.invoke('ctv:set-fullscreen', Boolean(enabled)),
   isFullscreen: () => ipcRenderer.invoke('ctv:is-fullscreen'),
   getRuntimeInfo: () => ipcRenderer.invoke('ctv:get-runtime-info'),
   clearCache: () => ipcRenderer.invoke('ctv:clear-cache'),
+  loadPersistentState: () => ipcRenderer.invoke('ctv:load-persistent-state'),
+  savePersistentState: (patch) => {
+    if (!patch || typeof patch !== 'object') return Promise.resolve(null);
+    return ipcRenderer.invoke('ctv:save-persistent-state', patch);
+  },
   startSelfUpdate: (downloadUrl) => {
     if (!isValidUpdateUrl(downloadUrl)) {
       return Promise.resolve({ ok: false, error: 'URL de actualización no permitida' });

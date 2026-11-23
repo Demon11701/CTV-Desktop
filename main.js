@@ -7,12 +7,17 @@ const os = require('os');
 const { spawn } = require('child_process');
 
 /* ============================================================================
- * 1. CONFIGURACIÓN DE PLATAFORMA Y ACELERACIÓN POR HARDWARE (GPU)
+ * 1. CONFIGURACIÓN DE PLATAFORMA, RUTA PERSISTENTE Y ACELERACIÓN GPU
  * ============================================================================ */
-const USER_AGENT =
-  'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36';
+const MOBILE_USER_AGENT =
+  'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36';
+const DESKTOP_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+const USER_AGENT = MOBILE_USER_AGENT;
 const MAX_CACHE_BYTES = 180 * 1024 * 1024; // 180 MB límite en disco
 const MAX_PROXY_BODY_BYTES = 15 * 1024 * 1024; // 15 MB límite seguro por respuesta proxy
+const MAX_STATE_BODY_BYTES = 256 * 1024; // 256 KB límite estricto para /__ctv_state
+const PREFERRED_LOCAL_PORTS = [45780, 45781, 45782, 45783, 45784, 0];
 
 const ALLOWED_UPDATE_PREFIXES = [
   'https://github.com/Demon11701/CTV-Desktop/',
@@ -20,7 +25,209 @@ const ALLOWED_UPDATE_PREFIXES = [
   'https://release-assets.githubusercontent.com/'
 ];
 
+// Garantizar ruta userData estable en %APPDATA%\CTV en Windows Portable (nunca en %TEMP% ni carpeta efímera NSIS)
+function configureStableUserDataPath() {
+  try {
+    if (process.platform === 'win32') {
+      const appDataBase = process.env.APPDATA || app.getPath('appData');
+      if (appDataBase) {
+        const stableDir = path.join(appDataBase, 'CTV');
+        fs.mkdirSync(stableDir, { recursive: true });
+        app.setPath('userData', stableDir);
+      }
+    }
+  } catch {}
+}
+
+function resolvePackageAppVersion() {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
+    if (pkg && typeof pkg.version === 'string' && pkg.version.trim()) {
+      return pkg.version.trim();
+    }
+  } catch {}
+  const v = app.getVersion();
+  return v && v !== (process.versions && process.versions.electron) ? v : '1.6.1';
+}
+
+const APP_VERSION = resolvePackageAppVersion();
+configureStableUserDataPath();
 app.userAgentFallback = USER_AGENT;
+
+function getPersistentStateFilePath() {
+  return path.join(app.getPath('userData'), 'ctv-user-state.json');
+}
+
+function normalizeArrayBySlug(arr) {
+  if (!Array.isArray(arr)) return [];
+  const map = new Map();
+  for (const item of arr) {
+    if (item && typeof item === 'object' && item.slug) {
+      map.set(String(item.slug), item);
+    }
+  }
+  return Array.from(map.values());
+}
+
+function normalizeStringArray(arr) {
+  if (!Array.isArray(arr)) return [];
+  return Array.from(new Set(arr.map((x) => String(x || '').trim()).filter(Boolean)));
+}
+
+function readPersistentState() {
+  const defaultState = {
+    favMovies: [],
+    favSeries: [],
+    favTvSlugs: [],
+    watched: [],
+    userPrefs: {},
+    dismissedUpdateTag: '',
+    updatedAt: 0
+  };
+  try {
+    const filePath = getPersistentStateFilePath();
+    if (!fs.existsSync(filePath)) return defaultState;
+    const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    if (!raw || typeof raw !== 'object') return defaultState;
+    return {
+      favMovies: normalizeArrayBySlug(raw.favMovies),
+      favSeries: normalizeArrayBySlug(raw.favSeries),
+      favTvSlugs: normalizeStringArray(raw.favTvSlugs),
+      watched: normalizeStringArray(raw.watched),
+      userPrefs: raw.userPrefs && typeof raw.userPrefs === 'object' ? raw.userPrefs : {},
+      dismissedUpdateTag: typeof raw.dismissedUpdateTag === 'string' ? raw.dismissedUpdateTag : '',
+      updatedAt: Number(raw.updatedAt) || 0
+    };
+  } catch {
+    return defaultState;
+  }
+}
+
+let atomicWriteSeq = 0;
+let atomicWriteInProgress = false;
+let pendingStatePatchQueue = [];
+
+function sleepSyncMs(ms) {
+  try {
+    if (typeof SharedArrayBuffer === 'function' && typeof Atomics === 'object') {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+      return;
+    }
+  } catch {}
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    // Fallback breve no bloqueante
+  }
+}
+
+function cleanupOrphanedStateTempFiles() {
+  try {
+    const filePath = getPersistentStateFilePath();
+    const dirPath = path.dirname(filePath);
+    const baseName = path.basename(filePath);
+    if (!fs.existsSync(dirPath)) return;
+    const entries = fs.readdirSync(dirPath);
+    for (const entry of entries) {
+      if (entry.startsWith(baseName + '.') && entry.endsWith('.tmp')) {
+        try {
+          fs.unlinkSync(path.join(dirPath, entry));
+        } catch {}
+      }
+    }
+  } catch {}
+}
+
+cleanupOrphanedStateTempFiles();
+
+function isValidStatePatchObject(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
+  const allowedKeys = new Set([
+    'favMovies',
+    'favSeries',
+    'favTvSlugs',
+    'watched',
+    'userPrefs',
+    'dismissedUpdateTag',
+    'updatedAt'
+  ]);
+  return Object.keys(obj).every((k) => allowedKeys.has(k));
+}
+
+function writePersistentStateAtomic(patch = {}) {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    return readPersistentState();
+  }
+  pendingStatePatchQueue.push(patch);
+  if (atomicWriteInProgress) {
+    return readPersistentState();
+  }
+  atomicWriteInProgress = true;
+  let lastSaved = null;
+  try {
+    while (pendingStatePatchQueue.length > 0) {
+      const curPatch = pendingStatePatchQueue.shift();
+      const current = lastSaved || readPersistentState();
+      const next = {
+        favMovies: Array.isArray(curPatch.favMovies) ? normalizeArrayBySlug(curPatch.favMovies) : current.favMovies,
+        favSeries: Array.isArray(curPatch.favSeries) ? normalizeArrayBySlug(curPatch.favSeries) : current.favSeries,
+        favTvSlugs: Array.isArray(curPatch.favTvSlugs) ? normalizeStringArray(curPatch.favTvSlugs) : current.favTvSlugs,
+        watched: Array.isArray(curPatch.watched) ? normalizeStringArray(curPatch.watched) : current.watched,
+        userPrefs:
+          curPatch.userPrefs && typeof curPatch.userPrefs === 'object' && !Array.isArray(curPatch.userPrefs)
+            ? { ...current.userPrefs, ...curPatch.userPrefs }
+            : current.userPrefs,
+        dismissedUpdateTag:
+          typeof curPatch.dismissedUpdateTag === 'string'
+            ? curPatch.dismissedUpdateTag
+            : current.dismissedUpdateTag,
+        updatedAt: Date.now()
+      };
+
+      const filePath = getPersistentStateFilePath();
+      const dirPath = path.dirname(filePath);
+      fs.mkdirSync(dirPath, { recursive: true });
+      const tmpPath = `${filePath}.${process.pid}.${++atomicWriteSeq}.tmp`;
+      const serialized = JSON.stringify(next, null, 2);
+      fs.writeFileSync(tmpPath, serialized, 'utf-8');
+
+      let renamed = false;
+      for (let attempt = 1; attempt <= 3 && !renamed; attempt++) {
+        try {
+          fs.renameSync(tmpPath, filePath);
+          renamed = true;
+        } catch (err) {
+          const code = (err && err.code) || '';
+          if ((code === 'EPERM' || code === 'EBUSY' || code === 'EACCES') && attempt < 3) {
+            sleepSyncMs(15 * attempt);
+          } else {
+            break;
+          }
+        }
+      }
+
+      if (!renamed) {
+        try {
+          fs.copyFileSync(tmpPath, filePath);
+        } catch {
+          try {
+            fs.writeFileSync(filePath, serialized, 'utf-8');
+          } catch {}
+        }
+        try {
+          if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+        } catch {}
+      }
+
+      lastSaved = next;
+    }
+    return lastSaved || readPersistentState();
+  } catch {
+    return readPersistentState();
+  } finally {
+    atomicWriteInProgress = false;
+    cleanupOrphanedStateTempFiles();
+  }
+}
 
 function configureHardwareAcceleration() {
   const isLinux = process.platform === 'linux';
@@ -64,11 +271,12 @@ function configureHardwareAcceleration() {
       app.commandLine.appendSwitch('enable-features', linuxFeatures.join(','));
     }
   } else if (isWin) {
-    // Decodificación hardware estándar en Windows respetando la GPU blocklist de Chromium para fallback seguro
+    // Decodificación hardware D3D11 + MediaFoundation en Windows respetando la GPU blocklist de Chromium para fallback seguro
     app.commandLine.appendSwitch(
       'enable-features',
-      'D3D11VideoDecoder,PlatformHEVCDecoderSupport'
+      'D3D11VideoDecoder,MediaFoundationD3D11VideoCapture,PlatformHEVCDecoderSupport,HardwareMediaKeyHandling'
     );
+    app.commandLine.appendSwitch('enable-accelerated-video-decode');
   }
 }
 
@@ -637,6 +845,113 @@ function startLocalServer(rootDir) {
         const parsedUrl = new URL(req.url, 'http://127.0.0.1');
         let pathname = decodeURIComponent(parsedUrl.pathname);
 
+        if (pathname === '/__ctv_state') {
+          const addr = server.address();
+          const activePort = (addr && addr.port) || 45780;
+          const expectedOrigin = `http://127.0.0.1:${activePort}`;
+          const remoteAddr = String((req.socket && req.socket.remoteAddress) || '');
+          const isLoopbackSocket = remoteAddr === '127.0.0.1' || remoteAddr === '::ffff:127.0.0.1';
+          const originHdr = String(req.headers['origin'] || '').trim();
+          const refererHdr = String(req.headers['referer'] || '').trim();
+          const localTokenHdr = String(req.headers['x-ctv-local'] || '').trim();
+
+          const originForbidden = Boolean(originHdr && originHdr !== expectedOrigin);
+          const refererForbidden = Boolean(
+            refererHdr && refererHdr !== expectedOrigin && !refererHdr.startsWith(expectedOrigin + '/')
+          );
+          const hasTrustedContext =
+            originHdr === expectedOrigin ||
+            refererHdr === expectedOrigin ||
+            refererHdr.startsWith(expectedOrigin + '/') ||
+            localTokenHdr === '1';
+
+          if (!isLoopbackSocket || originForbidden || refererForbidden || !hasTrustedContext) {
+            res.writeHead(403, {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Cache-Control': 'no-store'
+            });
+            res.end(JSON.stringify({ ok: false, error: 'Forbidden: untrusted origin' }));
+            return;
+          }
+
+          if (req.method === 'OPTIONS') {
+            res.writeHead(204, {
+              'Access-Control-Allow-Origin': expectedOrigin,
+              'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+              'Access-Control-Allow-Headers': 'Content-Type, X-CTV-Local',
+              'Vary': 'Origin'
+            });
+            res.end();
+            return;
+          }
+
+          if (req.method === 'POST') {
+            const contentLen = parseInt(req.headers['content-length'] || '0', 10) || 0;
+            if (contentLen > MAX_STATE_BODY_BYTES) {
+              req.resume();
+              res.writeHead(413, {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Cache-Control': 'no-store'
+              });
+              res.end(JSON.stringify({ ok: false, error: 'Payload Too Large (max 256 KB)' }));
+              return;
+            }
+            const chunks = [];
+            let bytes = 0;
+            let tooLarge = false;
+            req.on('data', (c) => {
+              bytes += c.length;
+              if (bytes > MAX_STATE_BODY_BYTES) {
+                tooLarge = true;
+                chunks.length = 0;
+                return;
+              }
+              chunks.push(c);
+            });
+            req.on('end', () => {
+              if (tooLarge) {
+                res.writeHead(413, {
+                  'Content-Type': 'application/json; charset=utf-8',
+                  'Cache-Control': 'no-store'
+                });
+                res.end(JSON.stringify({ ok: false, error: 'Payload Too Large (max 256 KB)' }));
+                return;
+              }
+              let parsed = null;
+              try {
+                const bodyStr = Buffer.concat(chunks).toString('utf-8');
+                parsed = JSON.parse(bodyStr || '{}');
+              } catch {
+                parsed = null;
+              }
+              if (!isValidStatePatchObject(parsed)) {
+                res.writeHead(400, {
+                  'Content-Type': 'application/json; charset=utf-8',
+                  'Cache-Control': 'no-store'
+                });
+                res.end(JSON.stringify({ ok: false, error: 'Invalid state payload' }));
+                return;
+              }
+              const saved = writePersistentStateAtomic(parsed);
+              res.writeHead(200, {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Access-Control-Allow-Origin': expectedOrigin,
+                'Cache-Control': 'no-store'
+              });
+              res.end(JSON.stringify({ ok: true, state: saved }));
+            });
+            return;
+          }
+
+          res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Access-Control-Allow-Origin': expectedOrigin,
+            'Cache-Control': 'no-store'
+          });
+          res.end(JSON.stringify({ ok: true, state: readPersistentState() }));
+          return;
+        }
+
         if (pathname === '/__ctv_self_update') {
           const dlUrl = parsedUrl.searchParams.get('url');
           if (!dlUrl || !isAllowedUpdateUrl(dlUrl)) {
@@ -762,11 +1077,24 @@ function startLocalServer(rootDir) {
       }
     });
 
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      localServer = server;
-      resolve(`http://127.0.0.1:${port}/index.html`);
-    });
+    let portIdx = 0;
+    const tryListen = () => {
+      const targetPort = PREFERRED_LOCAL_PORTS[portIdx] !== undefined ? PREFERRED_LOCAL_PORTS[portIdx] : 0;
+      const onError = (err) => {
+        if (err && err.code === 'EADDRINUSE' && portIdx < PREFERRED_LOCAL_PORTS.length - 1) {
+          portIdx += 1;
+          tryListen();
+        }
+      };
+      server.once('error', onError);
+      server.listen(targetPort, '127.0.0.1', () => {
+        server.removeListener('error', onError);
+        const { port } = server.address();
+        localServer = server;
+        resolve(`http://127.0.0.1:${port}/index.html`);
+      });
+    };
+    tryListen();
   });
 }
 
@@ -783,10 +1111,9 @@ function configureSessionSecurityAndAdblock() {
     callback({ cancel: false });
   });
 
-  // 2. Clean Mobile User-Agent & Referer Spoofing for PelisJuanita / SeriesPlayer
+  // 2. Clean User-Agent & Referer Spoofing (Mobile UA para PelisJuanita/Workers; Desktop UA para CDNs de video externos en HD)
   session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
     const headers = { ...details.requestHeaders };
-    headers['User-Agent'] = USER_AGENT;
 
     const reqUrl = details.url || '';
     const isLocalRequest = reqUrl.startsWith('http://127.0.0.1') || reqUrl.startsWith('file://');
@@ -800,6 +1127,8 @@ function configureSessionSecurityAndAdblock() {
       reqUrl.includes('onfilom.com') ||
       reqUrl.includes('solo-latino.com') ||
       reqUrl.includes('321moviesfree.com');
+
+    headers['User-Agent'] = needsPjReferer ? MOBILE_USER_AGENT : DESKTOP_USER_AGENT;
 
     for (const key of Object.keys(headers)) {
       const lower = key.toLowerCase();
@@ -896,7 +1225,9 @@ function registerIpcHandlers() {
     'ctv:get-runtime-info',
     'ctv:clear-cache',
     'ctv:self-update',
-    'ctv:self-update-status'
+    'ctv:self-update-status',
+    'ctv:load-persistent-state',
+    'ctv:save-persistent-state'
   ];
   channels.forEach((ch) => {
     try { ipcMain.removeHandler(ch); } catch {}
@@ -924,11 +1255,21 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('ctv:get-runtime-info', () => ({
-    version: app.getVersion(),
+    appVersion: APP_VERSION,
+    version: APP_VERSION,
+    electronVersion: process.versions.electron || '',
     platform: process.platform,
     arch: process.arch,
-    isPackaged: app.isPackaged
+    isPackaged: app.isPackaged,
+    userDataPath: app.getPath('userData')
   }));
+
+  ipcMain.handle('ctv:load-persistent-state', () => readPersistentState());
+
+  ipcMain.handle('ctv:save-persistent-state', (_event, patch) => {
+    if (!patch || typeof patch !== 'object') return readPersistentState();
+    return writePersistentStateAtomic(patch);
+  });
 
   ipcMain.handle('ctv:clear-cache', async () => {
     try {
@@ -971,6 +1312,7 @@ async function createWindow() {
     icon: path.join(__dirname, 'build', 'icons', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      additionalArguments: [`--ctv-app-version=${APP_VERSION}`],
       nodeIntegration: false,
       contextIsolation: true,
       webSecurity: false,

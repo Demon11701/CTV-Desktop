@@ -1,4 +1,4 @@
-/* CTV UI v1.6.0:
+/* CTV UI v1.6.1:
  * 1. Barra superior unificada y portada (hero) estilo Apple TV.
  * 2. Navegación con control remoto / teclado para menú horizontal.
  * 3. Sección dedicada de Anime (Series Anime, Películas Anime y Doramas Coreanos).
@@ -45,6 +45,7 @@
       var perfStyle = document.createElement('style');
       perfStyle.id = 'ctv-ui-perf-style';
       perfStyle.textContent = [
+        '#player-video,#player-frame{object-fit:contain!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}',
         '#ctv-player-loader{position:absolute;inset:0;z-index:14;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(5,6,10,.88);color:#fff;pointer-events:none;transition:opacity .2s ease;will-change:opacity}',
         '#ctv-player-loader .ctv-spin{width:42px;height:42px;border-radius:50%;border:3px solid rgba(255,255,255,.15);border-top-color:#b04cf2;animation:ctvSpin .8s linear infinite;will-change:transform}',
         '@keyframes ctvSpin{to{transform:rotate(360deg)}}',
@@ -141,24 +142,31 @@
     }
     window.ctvShowToast = ctvShowToast;
 
-    // Persistencia local ligera de preferencias del usuario (servidor preferido / idioma / subtítulos)
+    // Persistencia local ligera de preferencias del usuario (servidor preferido / idioma / calidad / modo de imagen / subtítulos)
     var CTV_PREFS_KEY = 'ctv_user_prefs_v1';
     function ctvGetUserPrefs() {
       try {
         var raw = JSON.parse(localStorage.getItem(CTV_PREFS_KEY) || '{}');
+        var rawMode = typeof raw.imageMode === 'string' ? raw.imageMode : 'original';
+        if (rawMode !== 'original' && rawMode !== 'sharp' && rawMode !== 'cinema') rawMode = 'original';
         return {
           preferredServer: typeof raw.preferredServer === 'string' ? raw.preferredServer : '',
           preferredLang: typeof raw.preferredLang === 'string' ? raw.preferredLang : 'LATINO',
+          preferredQuality: typeof raw.preferredQuality === 'string' ? raw.preferredQuality : 'auto',
+          imageMode: rawMode,
           subtitlesEnabled: raw.subtitlesEnabled !== false
         };
       } catch (e) {
-        return { preferredServer: '', preferredLang: 'LATINO', subtitlesEnabled: true };
+        return { preferredServer: '', preferredLang: 'LATINO', preferredQuality: 'auto', imageMode: 'original', subtitlesEnabled: true };
       }
     }
     function ctvSaveUserPrefs(patch) {
       try {
         var next = Object.assign(ctvGetUserPrefs(), patch || {});
         localStorage.setItem(CTV_PREFS_KEY, JSON.stringify(next));
+        if (typeof window.ctvPersistDesktopState === 'function') {
+          window.ctvPersistDesktopState({ userPrefs: next });
+        }
         return next;
       } catch (e) {
         return null;
@@ -329,6 +337,9 @@
       }
 
       ctvInvalidateFavCache();
+      if (typeof window.ctvPersistDesktopState === 'function') {
+        window.ctvPersistDesktopState();
+      }
       ctvUpdateFavButtonsUI();
       ctvShowToast(added ? '★ Guardado en Favoritos' : '☆ Eliminado de Favoritos');
 
@@ -463,13 +474,33 @@
       setTimeout(ctvUpdateFavButtonsUI, 300);
     }
 
+    if (typeof window.ctvHydratePersistentState === 'function') {
+      window.ctvHydratePersistentState();
+    }
+
     window.fetch = async function (resource, init) {
       var url = typeof resource === 'string' ? resource : (resource && resource.url) || '';
       if (url.indexOf('pelisjuanita.com') < 0) {
         return _nativeFetch.apply(this, arguments);
       }
 
-      // 0. Agenda Deportiva (api-agenda.php): respaldo automático si falla el fetch directo
+      // 0A. Neutralizar comprobador heredado de APK (/app/version.php) para evitar falsos modales de actualización en Desktop/Mobile v1.6.0
+      if (url.indexOf('/app/version.php') >= 0) {
+        try {
+          var vResp = await _nativeFetch.apply(this, arguments);
+          if (vResp && vResp.ok) {
+            var vJson = await vResp.clone().json().catch(function () { return null; });
+            if (vJson && typeof vJson === 'object') {
+              vJson.versionCode = 0;
+              vJson.minVersionCode = 0;
+              return jsonResponse(vJson);
+            }
+          }
+        } catch (e) {}
+        return jsonResponse({ status: 'ok', versionCode: 0, minVersionCode: 0 });
+      }
+
+      // 0B. Agenda Deportiva (api-agenda.php): respaldo automático si falla el fetch directo
       if (url.indexOf('api-agenda.php') >= 0) {
         try {
           var agResp = await _nativeFetch.apply(this, arguments);
@@ -1059,35 +1090,42 @@
     var prefs = typeof window.ctvGetUserPrefs === 'function' ? window.ctvGetUserPrefs() : { preferredServer: '' };
     var prefSrv = String(prefs.preferredServer || '').toUpperCase();
     var name = ((s && (s.server_name || s.ServerName || s['server-name'])) || '').toUpperCase();
+    var qual = ((s && (s.calidad || s.quality)) || '').toUpperCase();
     var prefBoost = prefSrv && name && name === prefSrv ? 4 : 0;
+    var qualBoost = 0;
+    if (/CAM|HDCAM|TS|SCREENER|TELECINE/.test(qual)) qualBoost = -25;
+    else if (/4K|2160|UHD/.test(qual)) qualBoost = 5;
+    else if (/FHD|1080|FULL/.test(qual)) qualBoost = 4;
+    else if (/HD|720/.test(qual)) qualBoost = 2;
+    var bonus = prefBoost + qualBoost;
 
-    if (s && s._isBackupExtra) return (s._extraRank || 65) + prefBoost;
+    if (s && s._isBackupExtra) return (s._extraRank || 65) + bonus;
     var lang = ((s && (s.idioma || s.audio)) || '').toUpperCase();
     var u = ((s && (s.url || s.link)) || '').toLowerCase();
 
     // 1. Audio Latino al frente (servidores oficiales de PelisJuanita en Latino)
     if (lang.indexOf('LATIN') >= 0) {
-      if (name.indexOf('PELISJUANITA') >= 0 || name.indexOf('DIRECTO') >= 0 || name.indexOf('PELISPLAYER') >= 0 || name.indexOf('SERIESPLAYER') >= 0) return 125 + prefBoost;
-      if (name.indexOf('VIMEUS') >= 0 || u.indexOf('vimeus') >= 0) return 122 + prefBoost;
-      if (u.indexOf('voe.sx') >= 0) return 118 + prefBoost;
-      if (u.indexOf('vibuxer') >= 0 || u.indexOf('hglink') >= 0 || u.indexOf('streamwish') >= 0) return 117 + prefBoost;
-      if (u.indexOf('lulustream') >= 0 || u.indexOf('lulust') >= 0) return 116 + prefBoost;
-      if (u.indexOf('morencius') >= 0) return 115 + prefBoost;
-      if (u.indexOf('vidara') >= 0 || u.indexOf('mixdrop') >= 0 || u.indexOf('bysesukior') >= 0 || u.indexOf('savefiles') >= 0) return 114 + prefBoost;
-      return 110 + prefBoost;
+      if (name.indexOf('PELISJUANITA') >= 0 || name.indexOf('DIRECTO') >= 0 || name.indexOf('PELISPLAYER') >= 0 || name.indexOf('SERIESPLAYER') >= 0) return 125 + bonus;
+      if (name.indexOf('VIMEUS') >= 0 || u.indexOf('vimeus') >= 0) return 122 + bonus;
+      if (u.indexOf('voe.sx') >= 0) return 118 + bonus;
+      if (u.indexOf('vibuxer') >= 0 || u.indexOf('hglink') >= 0 || u.indexOf('streamwish') >= 0) return 117 + bonus;
+      if (u.indexOf('lulustream') >= 0 || u.indexOf('lulust') >= 0) return 116 + bonus;
+      if (u.indexOf('morencius') >= 0) return 115 + bonus;
+      if (u.indexOf('vidara') >= 0 || u.indexOf('mixdrop') >= 0 || u.indexOf('bysesukior') >= 0 || u.indexOf('savefiles') >= 0) return 114 + bonus;
+      return 110 + bonus;
     }
     // 2. Audio Castellano / Español
     if (lang.indexOf('ESPA') >= 0 || lang.indexOf('CAST') >= 0) {
-      if (name.indexOf('PELISJUANITA') >= 0 || name.indexOf('DIRECTO') >= 0 || name.indexOf('PELISPLAYER') >= 0 || name.indexOf('SERIESPLAYER') >= 0) return 99 + prefBoost;
-      if (name.indexOf('VIMEUS') >= 0 || u.indexOf('vimeus') >= 0) return 98 + prefBoost;
-      if (u.indexOf('voe.sx') >= 0) return 96 + prefBoost;
-      if (u.indexOf('vibuxer') >= 0 || u.indexOf('hglink') >= 0 || u.indexOf('streamwish') >= 0) return 95 + prefBoost;
-      if (u.indexOf('lulustream') >= 0 || u.indexOf('lulust') >= 0) return 94 + prefBoost;
-      return 90 + prefBoost;
+      if (name.indexOf('PELISJUANITA') >= 0 || name.indexOf('DIRECTO') >= 0 || name.indexOf('PELISPLAYER') >= 0 || name.indexOf('SERIESPLAYER') >= 0) return 99 + bonus;
+      if (name.indexOf('VIMEUS') >= 0 || u.indexOf('vimeus') >= 0) return 98 + bonus;
+      if (u.indexOf('voe.sx') >= 0) return 96 + bonus;
+      if (u.indexOf('vibuxer') >= 0 || u.indexOf('hglink') >= 0 || u.indexOf('streamwish') >= 0) return 95 + bonus;
+      if (u.indexOf('lulustream') >= 0 || u.indexOf('lulust') >= 0) return 94 + bonus;
+      return 90 + bonus;
     }
     // 3. Servidores oficiales subtitulados de PelisJuanita
-    if (name.indexOf('PELISJUANITA') >= 0 || name.indexOf('DIRECTO') >= 0 || name.indexOf('PELISPLAYER') >= 0 || name.indexOf('SERIESPLAYER') >= 0) return 88 + prefBoost;
-    return 82 + prefBoost;
+    if (name.indexOf('PELISJUANITA') >= 0 || name.indexOf('DIRECTO') >= 0 || name.indexOf('PELISPLAYER') >= 0 || name.indexOf('SERIESPLAYER') >= 0) return 88 + bonus;
+    return 82 + bonus;
   }
 
   function snapshotActiveServers(list, baseTitle) {
@@ -1319,6 +1357,34 @@
       var fn = activePlaybackCleanups.pop();
       try { fn(); } catch (e) {}
     }
+    setActiveHls(null);
+  }
+
+  function getActiveHls() {
+    try {
+      if (window.__ctvActiveHlsRef && typeof window.__ctvActiveHlsRef.deref === 'function') {
+        return window.__ctvActiveHlsRef.deref() || null;
+      }
+    } catch (e) {}
+    return window.__ctvActiveHls || null;
+  }
+
+  function setActiveHls(inst) {
+    if (!inst) {
+      window.__ctvActiveHlsRef = null;
+      window.__ctvActiveHls = null;
+      return;
+    }
+    try {
+      if (typeof WeakRef === 'function') {
+        window.__ctvActiveHlsRef = new WeakRef(inst);
+        window.__ctvActiveHls = null;
+      } else {
+        window.__ctvActiveHls = inst;
+      }
+    } catch (e) {
+      window.__ctvActiveHls = inst;
+    }
   }
 
   function showPlayerLoader(label) {
@@ -1354,6 +1420,344 @@
     }
   }
 
+  var IMAGE_MODES = ['original', 'sharp', 'cinema'];
+  var IMAGE_MODE_LABELS = {
+    original: '✨ Original',
+    sharp: '✨ Nítido HD',
+    cinema: '✨ Cine'
+  };
+
+  function ensureSvgFilters() {
+    try {
+      if (document.getElementById('ctv-svg-filters')) return;
+      var wrap = document.createElement('div');
+      wrap.id = 'ctv-svg-filters';
+      wrap.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;opacity:0';
+      wrap.innerHTML =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true">' +
+        '<defs>' +
+        '<filter id="ctv-unsharp-hd" color-interpolation-filters="sRGB">' +
+        '<feConvolveMatrix order="3" kernelMatrix="0 -0.35 0 -0.35 2.4 -0.35 0 -0.35 0" preserveAlpha="true"/>' +
+        '</filter>' +
+        '</defs>' +
+        '</svg>';
+      (document.body || document.documentElement).appendChild(wrap);
+    } catch (e) {}
+  }
+
+  function ensureImageModeButton() {
+    var pBar = document.getElementById('player-bar');
+    if (!pBar) return null;
+    ensureSvgFilters();
+    var mBtn = document.getElementById('player-imgmode');
+    if (!mBtn) {
+      mBtn = document.createElement('button');
+      mBtn.id = 'player-imgmode';
+      mBtn.className = 'btn focusable hidden';
+      mBtn.tabIndex = 0;
+      mBtn.title = 'Modo de imagen (Original / Nítido HD / Cine)';
+      mBtn.textContent = '✨ Original';
+      var subBtn = document.getElementById('player-subs');
+      var favBtn = document.getElementById('player-fav');
+      if (subBtn && subBtn.parentNode === pBar) pBar.insertBefore(mBtn, subBtn);
+      else if (favBtn && favBtn.parentNode === pBar) pBar.insertBefore(mBtn, favBtn);
+      else pBar.appendChild(mBtn);
+    }
+    mBtn.onclick = function (e) {
+      e.stopPropagation();
+      cycleImageMode();
+    };
+    return mBtn;
+  }
+
+  function applyImageMode(mode, persist) {
+    ensureSvgFilters();
+    var prefs = typeof window.ctvGetUserPrefs === 'function' ? window.ctvGetUserPrefs() : { imageMode: 'original' };
+    var target = typeof mode === 'string' && IMAGE_MODES.indexOf(mode) >= 0
+      ? mode
+      : (IMAGE_MODES.indexOf(prefs.imageMode) >= 0 ? prefs.imageMode : 'original');
+    var filterCss = 'none';
+    if (target === 'sharp') {
+      filterCss = 'url(#ctv-unsharp-hd) contrast(1.03) saturate(1.04)';
+    } else if (target === 'cinema') {
+      filterCss = 'contrast(1.07) saturate(1.10) brightness(0.99)';
+    }
+    var pv = document.getElementById('player-video');
+    var pf = document.getElementById('player-frame');
+    if (pv) pv.style.filter = filterCss === 'none' ? '' : filterCss;
+    if (pf) pf.style.filter = filterCss === 'none' ? '' : filterCss;
+    var mBtn = ensureImageModeButton();
+    if (mBtn) {
+      mBtn.textContent = IMAGE_MODE_LABELS[target] || '✨ Original';
+    }
+    if (persist && typeof window.ctvSaveUserPrefs === 'function') {
+      window.ctvSaveUserPrefs({ imageMode: target });
+    }
+    return target;
+  }
+
+  function cycleImageMode() {
+    var prefs = typeof window.ctvGetUserPrefs === 'function' ? window.ctvGetUserPrefs() : { imageMode: 'original' };
+    var cur = IMAGE_MODES.indexOf(prefs.imageMode) >= 0 ? prefs.imageMode : 'original';
+    var next = IMAGE_MODES[(IMAGE_MODES.indexOf(cur) + 1) % IMAGE_MODES.length];
+    applyImageMode(next, true);
+    if (typeof window.ctvShowToast === 'function') {
+      window.ctvShowToast('Modo de imagen: ' + (IMAGE_MODE_LABELS[next] || next));
+    }
+    return next;
+  }
+  window.ctvSetImageMode = applyImageMode;
+  window.ctvCycleImageMode = cycleImageMode;
+
+  function ensureQualityButton() {
+    var pBar = document.getElementById('player-bar');
+    if (!pBar) return null;
+    var qBtn = document.getElementById('player-quality');
+    if (!qBtn) {
+      qBtn = document.createElement('button');
+      qBtn.id = 'player-quality';
+      qBtn.className = 'btn focusable hidden';
+      qBtn.tabIndex = 0;
+      qBtn.title = 'Calidad de video';
+      qBtn.textContent = '🎬 HD';
+      var mBtn = document.getElementById('player-imgmode');
+      var subBtn = document.getElementById('player-subs');
+      var favBtn = document.getElementById('player-fav');
+      if (mBtn && mBtn.parentNode === pBar) pBar.insertBefore(qBtn, mBtn);
+      else if (subBtn && subBtn.parentNode === pBar) pBar.insertBefore(qBtn, subBtn);
+      else if (favBtn && favBtn.parentNode === pBar) pBar.insertBefore(qBtn, favBtn);
+      else pBar.appendChild(qBtn);
+    }
+    return qBtn;
+  }
+
+  function formatHeightLabel(h) {
+    var num = parseInt(h, 10) || 0;
+    if (num >= 2160) return '4K UHD';
+    if (num >= 1080) return '1080p FHD';
+    if (num >= 720) return '720p HD';
+    if (num >= 480) return '480p';
+    if (num > 0) return num + 'p';
+    return 'HD';
+  }
+
+  function updateQualityButtonUI() {
+    var mBtn = ensureImageModeButton();
+    if (mBtn) {
+      applyImageMode(null, false);
+      mBtn.classList.remove('hidden');
+    }
+    var qBtn = ensureQualityButton();
+    if (!qBtn) return;
+    var hls = getActiveHls();
+    if (hls && Array.isArray(hls.levels) && hls.levels.length > 0) {
+      var curIdx = typeof hls.currentLevel === 'number' && hls.currentLevel >= 0 ? hls.currentLevel : hls.loadLevel;
+      var curLvl = hls.levels[curIdx] || hls.levels[hls.levels.length - 1];
+      var h = (curLvl && curLvl.height) || 0;
+      var isAuto = Boolean(hls.autoLevelEnabled || hls.currentLevel === -1 || hls.nextLevel === -1);
+      qBtn.textContent = '🎬 ' + (isAuto ? ('Auto · ' + formatHeightLabel(h)) : formatHeightLabel(h));
+      qBtn.classList.remove('hidden');
+      qBtn.onclick = function (e) {
+        e.stopPropagation();
+        showQualityModal();
+      };
+      return;
+    }
+    var video = document.getElementById('player-video');
+    if (video && !video.classList.contains('hidden') && video.videoHeight > 0) {
+      qBtn.textContent = '🎬 ' + formatHeightLabel(video.videoHeight);
+      qBtn.classList.remove('hidden');
+      qBtn.onclick = function (e) {
+        e.stopPropagation();
+        if (typeof window.ctvShowToast === 'function') {
+          window.ctvShowToast('🎬 Reproduciendo en ' + formatHeightLabel(video.videoHeight) + ' (' + video.videoWidth + '×' + video.videoHeight + ')');
+        }
+      };
+    }
+  }
+
+  function showQualityModal() {
+    var old = document.getElementById('ctv-quality-modal');
+    if (old) { old.remove(); return; }
+    var hls = getActiveHls();
+    if (!hls || !Array.isArray(hls.levels) || !hls.levels.length) return;
+
+    var modal = document.createElement('div');
+    modal.id = 'ctv-quality-modal';
+    modal.className = 'modal';
+    modal.style.zIndex = '99999';
+    modal.innerHTML =
+      '<div class="dialog" style="max-width:420px">' +
+      '<div class="dialog-head"><h3>🎬 Calidad de video</h3><button class="btn focusable" id="ctv-quality-close" tabindex="0">✕</button></div>' +
+      '<div class="server-list" id="ctv-quality-list" style="max-height:55vh;overflow-y:auto"></div>' +
+      '</div>';
+    document.body.appendChild(modal);
+
+    var listEl = modal.querySelector('#ctv-quality-list');
+    var isAuto = Boolean(hls.autoLevelEnabled || hls.currentLevel === -1);
+    var focusTarget = null;
+
+    var autoBtn = document.createElement('button');
+    autoBtn.className = 'focusable';
+    autoBtn.tabIndex = 0;
+    autoBtn.innerHTML = '<span>' + (isAuto ? '✔ ' : '') + 'Automática (HD 1080p Priorizado)</span>';
+    autoBtn.onclick = function () {
+      try { hls.currentLevel = -1; hls.nextLevel = -1; } catch (e) {}
+      if (typeof window.ctvSaveUserPrefs === 'function') window.ctvSaveUserPrefs({ preferredQuality: 'auto' });
+      updateQualityButtonUI();
+      modal.remove();
+    };
+    listEl.appendChild(autoBtn);
+    if (isAuto) focusTarget = autoBtn;
+
+    var indexed = hls.levels.map(function (lvl, idx) {
+      return { idx: idx, height: lvl.height || 0, bitrate: lvl.bitrate || 0 };
+    }).sort(function (a, b) {
+      return (b.height - a.height) || (b.bitrate - a.bitrate);
+    });
+
+    var seenHeights = new Set();
+    indexed.forEach(function (item) {
+      var key = item.height > 0 ? String(item.height) : ('idx-' + item.idx);
+      if (seenHeights.has(key)) return;
+      seenHeights.add(key);
+      var b = document.createElement('button');
+      b.className = 'focusable';
+      b.tabIndex = 0;
+      var active = !isAuto && hls.currentLevel === item.idx;
+      var kbps = item.bitrate ? (' · ' + (item.bitrate / 1000000).toFixed(1) + ' Mbps') : '';
+      b.innerHTML = '<span>' + (active ? '✔ ' : '') + formatHeightLabel(item.height) + kbps + '</span>';
+      b.onclick = function () {
+        try { hls.currentLevel = item.idx; hls.loadLevel = item.idx; } catch (e) {}
+        if (item.height > 0 && typeof window.ctvSaveUserPrefs === 'function') {
+          window.ctvSaveUserPrefs({ preferredQuality: String(item.height) });
+        }
+        updateQualityButtonUI();
+        modal.remove();
+      };
+      listEl.appendChild(b);
+      if (active) focusTarget = b;
+    });
+
+    modal.querySelector('#ctv-quality-close').onclick = function () { modal.remove(); };
+    modal.addEventListener('click', function (e) { if (e.target === modal) modal.remove(); });
+    setTimeout(function () {
+      if (focusTarget && focusTarget.focus) focusTarget.focus();
+    }, 50);
+  }
+
+  // Hook universal idempotente y seguro ante OTA sobre hls.js interno (class ys) para arrancar directamente en 1080p/HD (5 Mbps initial estimate)
+  window.__ctvOnHlsUserConfigSet = function (inst, val) {
+    if (!val || typeof val !== 'object' || !inst || !inst.config || typeof inst.config.abrEwmaDefaultEstimate !== 'number') {
+      return;
+    }
+    try {
+      inst.config.abrEwmaDefaultEstimate = 5000000;
+      inst.config.abrEwmaDefaultEstimateMax = 20000000;
+      inst.config.capLevelToPlayerSize = false;
+      inst.config.abrBandWidthFactor = 0.95;
+      inst.config.abrBandWidthUpFactor = 0.85;
+      inst.config.maxBufferLength = 45;
+      inst.config.maxMaxBufferLength = 600;
+      inst.config.backBufferLength = 60;
+      val.abrEwmaDefaultEstimate = 5000000;
+      val.capLevelToPlayerSize = false;
+      if (inst.constructor && inst.constructor.DefaultConfig) {
+        inst.constructor.DefaultConfig.abrEwmaDefaultEstimate = 5000000;
+        inst.constructor.DefaultConfig.capLevelToPlayerSize = false;
+      }
+      setActiveHls(inst);
+      var ref = typeof WeakRef === 'function' ? new WeakRef(inst) : { deref: function () { return inst; } };
+      setTimeout(function () {
+        try {
+          var hlsInst = ref.deref();
+          if (!hlsInst || typeof hlsInst.on !== 'function' || hlsInst.__ctvEventsBound) return;
+          hlsInst.__ctvEventsBound = true;
+          var onManifestParsed = function () {
+            try {
+              var curHls = ref.deref();
+              if (!curHls) return;
+              var prefs = typeof window.ctvGetUserPrefs === 'function' ? window.ctvGetUserPrefs() : { preferredQuality: 'auto' };
+              var prefH = parseInt(prefs.preferredQuality, 10) || 0;
+              if (prefH > 0 && Array.isArray(curHls.levels) && curHls.levels.length > 1) {
+                var bestIdx = -1;
+                for (var li = 0; li < curHls.levels.length; li++) {
+                  var lh = curHls.levels[li].height || 0;
+                  if (lh === prefH || (bestIdx < 0 && lh <= prefH)) bestIdx = li;
+                }
+                if (bestIdx >= 0) curHls.currentLevel = bestIdx;
+              }
+            } catch (e) {}
+            updateQualityButtonUI();
+          };
+          var onLevelSwitched = function () {
+            updateQualityButtonUI();
+          };
+          var onDestroying = function () {
+            var curHls = ref.deref();
+            if (curHls && getActiveHls() === curHls) {
+              setActiveHls(null);
+            }
+          };
+          hlsInst.on('hlsManifestParsed', onManifestParsed);
+          hlsInst.on('hlsLevelSwitched', onLevelSwitched);
+          hlsInst.on('hlsDestroying', onDestroying);
+          registerPlaybackCleanup(function () {
+            try {
+              var curHls = ref.deref();
+              if (curHls && typeof curHls.off === 'function') {
+                curHls.off('hlsManifestParsed', onManifestParsed);
+                curHls.off('hlsLevelSwitched', onLevelSwitched);
+                curHls.off('hlsDestroying', onDestroying);
+              }
+            } catch (e) {}
+            setActiveHls(null);
+          });
+        } catch (e) {}
+      }, 0);
+    } catch (e) {}
+  };
+
+  if (!window.__ctvHlsHookVersion) {
+    window.__ctvHlsHookVersion = 13;
+    try {
+      var existingDesc = Object.getOwnPropertyDescriptor(Object.prototype, 'userConfig');
+      if (!existingDesc || existingDesc.configurable !== false) {
+        Object.defineProperty(Object.prototype, 'userConfig', {
+          configurable: true,
+          enumerable: false,
+          get: function () {
+            return undefined;
+          },
+          set: function (val) {
+            try {
+              Object.defineProperty(this, 'userConfig', {
+                value: val,
+                writable: true,
+                enumerable: true,
+                configurable: true
+              });
+            } catch (e) {}
+            try {
+              if (typeof window.__ctvOnHlsUserConfigSet === 'function') {
+                window.__ctvOnHlsUserConfigSet(this, val);
+              }
+            } catch (e) {}
+          }
+        });
+      }
+    } catch (e) {}
+  }
+
+  try {
+    var pvEl = document.getElementById('player-video');
+    if (pvEl && !pvEl.__ctvQualBound) {
+      pvEl.__ctvQualBound = true;
+      pvEl.addEventListener('loadedmetadata', updateQualityButtonUI);
+      pvEl.addEventListener('resize', updateQualityButtonUI);
+    }
+  } catch (e) {}
+
   function cleanupSubs() {
     activeBlobUrls.forEach(function (u) {
       try { URL.revokeObjectURL(u); } catch (e) {}
@@ -1365,6 +1769,13 @@
     if (subBtn) subBtn.classList.add('hidden');
     var subModal = document.getElementById('ctv-subs-modal');
     if (subModal) subModal.remove();
+    var qBtn = document.getElementById('player-quality');
+    if (qBtn) qBtn.classList.add('hidden');
+    var qModal = document.getElementById('ctv-quality-modal');
+    if (qModal) qModal.remove();
+    var mBtn = document.getElementById('player-imgmode');
+    if (mBtn) mBtn.classList.add('hidden');
+    setActiveHls(null);
     var video = document.getElementById('player-video');
     if (video) {
       video.onerror = null;
@@ -2019,33 +2430,49 @@
         }
       }
 
-      // Caso A: VIDARA / VIDARAA (API POST /api/stream)
+      // Caso A: VIDARA / VIDARAA (API POST /api/stream con fallback automático a mobile si desktop/tv falla)
       if (host.indexOf('vidara') >= 0 && parsed.pathname.indexOf('/e/') === 0) {
         var fcode = parsed.pathname.split('/').filter(Boolean).pop();
         if (fcode) {
-          var apiRes = await ctvHttpRequest(parsed.origin + '/api/stream', {
-            method: 'POST',
-            referer: rawUrl,
-            contentType: 'application/json',
-            body: JSON.stringify({ filecode: fcode, device: 'mobile', codecs: ['avc1.640028'] })
-          });
-          if (apiRes.body) {
-            var vj = JSON.parse(apiRes.body);
-            if (vj && vj.streaming_url) {
-              var vSubs = [];
-              if (Array.isArray(vj.subtitles)) {
-                vj.subtitles.forEach(function (st) {
-                  if (st && st.file_path) {
-                    vSubs.push({
-                      url: st.file_path,
-                      label: st.language || 'Subtítulo',
-                      default: String(st.language || '').toLowerCase().indexOf('esp') >= 0
+          var vidaraPayloads = [
+            {
+              filecode: fcode,
+              device: window.ctvIsDesktopProxyAvailable() ? 'desktop' : 'tv',
+              codecs: ['avc1.640033', 'avc1.64002a', 'avc1.640028']
+            },
+            {
+              filecode: fcode,
+              device: 'mobile',
+              codecs: ['avc1.640028']
+            }
+          ];
+          for (var vpIdx = 0; vpIdx < vidaraPayloads.length; vpIdx++) {
+            try {
+              var apiRes = await ctvHttpRequest(parsed.origin + '/api/stream', {
+                method: 'POST',
+                referer: rawUrl,
+                contentType: 'application/json',
+                body: JSON.stringify(vidaraPayloads[vpIdx])
+              });
+              if (apiRes && apiRes.body) {
+                var vj = JSON.parse(apiRes.body);
+                if (vj && vj.streaming_url) {
+                  var vSubs = [];
+                  if (Array.isArray(vj.subtitles)) {
+                    vj.subtitles.forEach(function (st) {
+                      if (st && st.file_path) {
+                        vSubs.push({
+                          url: st.file_path,
+                          label: st.language || 'Subtítulo',
+                          default: String(st.language || '').toLowerCase().indexOf('esp') >= 0
+                        });
+                      }
                     });
                   }
-                });
+                  return { url: vj.streaming_url, type: 'hls', tracks: vSubs };
+                }
               }
-              return { url: vj.streaming_url, type: 'hls', tracks: vSubs };
-            }
+            } catch (e) {}
           }
         }
       }
@@ -2126,19 +2553,55 @@
         } catch (e) {}
       }
 
-      var m3u8Match = unpacked.match(/(?:https?:)?\/\/[^\s"'<>\\]+\.m3u8[^\s"'<>\\]*/i);
-      if (m3u8Match) {
-        var streamUrl = m3u8Match[0];
-        if (streamUrl.indexOf('//') === 0) streamUrl = 'https:' + streamUrl;
-        return { url: streamUrl, type: 'hls', tracks: tracks };
+      function scoreStreamCandidate(u, ctx) {
+        var s = String(u || '').toLowerCase();
+        var c = String(ctx || '').toLowerCase();
+        var score = 0;
+        if (/master\.m3u8|index\.m3u8|playlist\.m3u8/.test(s)) score += 35;
+        if (/2160|4k|uhd/.test(s) || /2160|4k|uhd/.test(c)) score += 50;
+        else if (/1080|fhd|fullhd|[_.-]x\.m3u8|[_.-]h\.m3u8/.test(s) || /1080|fhd/.test(c)) score += 40;
+        else if (/720|[_.-]hd|[_.-]n\.m3u8/.test(s) || /720|\bhd\b/.test(c)) score += 25;
+        else if (/480/.test(s) || /480/.test(c)) score += 10;
+        else if (/360|240/.test(s) || /360|240/.test(c)) score -= 15;
+        return score;
       }
 
-      // MixDrop / MP4 directo
-      var mp4Match = unpacked.match(/(?:https?:)?\/\/[^\s"'<>\\]+\.mp4\?[^\s"'<>\\]*/i);
-      if (mp4Match && mp4Match[0].indexOf('bigbuckbunny') < 0) {
-        var mp4Url = mp4Match[0];
-        if (mp4Url.indexOf('//') === 0) mp4Url = 'https:' + mp4Url;
-        return { url: mp4Url, type: 'mp4', tracks: tracks };
+      var m3u8Re = /(?:https?:)?\/\/[^\s"'<>\\]+\.m3u8[^\s"'<>\\]*/gi;
+      var m3u8Best = '';
+      var m3u8BestScore = -999;
+      var mMatch;
+      while ((mMatch = m3u8Re.exec(unpacked)) !== null) {
+        var candM = mMatch[0];
+        if (candM.indexOf('//') === 0) candM = 'https:' + candM;
+        var ctxM = unpacked.slice(Math.max(0, mMatch.index - 80), Math.min(unpacked.length, mMatch.index + candM.length + 80));
+        var scM = scoreStreamCandidate(candM, ctxM);
+        if (!m3u8Best || scM > m3u8BestScore) {
+          m3u8Best = candM;
+          m3u8BestScore = scM;
+        }
+      }
+      if (m3u8Best) {
+        return { url: m3u8Best, type: 'hls', tracks: tracks };
+      }
+
+      // MixDrop / MP4 directo (priorizando el candidato de mayor resolución)
+      var mp4Re = /(?:https?:)?\/\/[^\s"'<>\\]+\.mp4\?[^\s"'<>\\]*/gi;
+      var mp4Best = '';
+      var mp4BestScore = -999;
+      var pMatch;
+      while ((pMatch = mp4Re.exec(unpacked)) !== null) {
+        var candP = pMatch[0];
+        if (candP.indexOf('bigbuckbunny') >= 0) continue;
+        if (candP.indexOf('//') === 0) candP = 'https:' + candP;
+        var ctxP = unpacked.slice(Math.max(0, pMatch.index - 80), Math.min(unpacked.length, pMatch.index + candP.length + 80));
+        var scP = scoreStreamCandidate(candP, ctxP);
+        if (!mp4Best || scP > mp4BestScore) {
+          mp4Best = candP;
+          mp4BestScore = scP;
+        }
+      }
+      if (mp4Best) {
+        return { url: mp4Best, type: 'mp4', tracks: tracks };
       }
 
       // Fallback limpio con HTML desinfectado (sin anuncios ni popups)
@@ -2150,6 +2613,7 @@
     }
     return null;
   }
+  window.__ctvExtractDirectStream = extractDirectStream;
 
   function applySubtitleSelection(index, persistPref) {
     var video = document.getElementById('player-video');
@@ -2373,6 +2837,11 @@
       }
       if (modal) modal.classList.remove('hidden');
     }
+    var mBtnIf = ensureImageModeButton();
+    if (mBtnIf) {
+      applyImageMode(null, false);
+      mBtnIf.classList.remove('hidden');
+    }
     if (typeof window.ctvUpdateFavButtonsUI === 'function') {
       window.ctvUpdateFavButtonsUI();
     }
@@ -2592,6 +3061,11 @@
     if (typeof window.__ctvOpenModal === 'function') {
       window.__ctvOpenModal((title || 'Reproduciendo') + ' · Conectando…');
     }
+    var mBtnPlay = ensureImageModeButton();
+    if (mBtnPlay) {
+      applyImageMode(null, false);
+      mBtnPlay.classList.remove('hidden');
+    }
     showPlayerLoader(
       failoverState.hop > 0
         ? ('Cambiando a ' + (serverName || 'servidor alternativo') + '…')
@@ -2808,9 +3282,16 @@
   var GITHUB_LATEST_URL = 'https://api.github.com/repos/Demon11701/CTV-Desktop/releases/latest';
   var ALTSTORE_REPO_URL = 'https://raw.githubusercontent.com/Demon11701/CTV-Desktop/main/altstore-repo.json';
   var GH_CACHE_KEY = 'ctv_gh_release_cache_v1';
+  var DISMISSED_TAG_KEY = 'ctv_dismissed_update_v1';
   var GH_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-  var CURRENT_VERSION = window.CTV_APP_VERSION || '1.6.0';
   var latestReleaseData = null;
+
+  function getAuthoritativeAppVersion() {
+    if (window.DesktopBridge && typeof window.DesktopBridge.appVersion === 'string' && window.DesktopBridge.appVersion) {
+      return window.DesktopBridge.appVersion;
+    }
+    return window.CTV_APP_VERSION || '1.6.1';
+  }
 
   function ctvFetchWithTimeout(url, opts, timeoutMs) {
     var ms = timeoutMs || 5000;
@@ -2826,19 +3307,42 @@
   window.ctvFetchWithTimeout = ctvFetchWithTimeout;
 
   function parseSemver(v) {
-    var clean = String(v || '').replace(/^[^0-9]*/, '').trim();
-    var parts = clean.split('.').map(function (n) { return parseInt(n, 10) || 0; });
+    var base = String(v || '').trim().replace(/^[vV]+/, '').split(/[-+]/)[0];
+    var parts = base.split('.').map(function (n) { return parseInt(n, 10) || 0; });
     while (parts.length < 3) parts.push(0);
     return parts;
   }
 
-  function isNewerVersion(remoteVer, localVer) {
+  function compareSemver(remoteVer, localVer) {
     var r = parseSemver(remoteVer);
     var l = parseSemver(localVer);
     for (var i = 0; i < 3; i++) {
-      if (r[i] > l[i]) return true;
-      if (r[i] < l[i]) return false;
+      if (r[i] > l[i]) return 1;
+      if (r[i] < l[i]) return -1;
     }
+    return 0;
+  }
+  window.ctvCompareSemver = compareSemver;
+
+  function isNewerVersion(remoteVer, localVer) {
+    return compareSemver(remoteVer, localVer) > 0;
+  }
+
+  function persistDismissedUpdateTag(tag) {
+    if (!tag) return;
+    try { sessionStorage.setItem('ctv_gh_update_postponed_' + tag, '1'); } catch (e) {}
+    try { localStorage.setItem(DISMISSED_TAG_KEY, String(tag)); } catch (e) {}
+    if (typeof window.ctvPersistDesktopState === 'function') {
+      window.ctvPersistDesktopState({ dismissedUpdateTag: String(tag) });
+    }
+  }
+
+  function isUpdateTagDismissed(tag) {
+    if (!tag) return false;
+    try {
+      if (sessionStorage.getItem('ctv_gh_update_postponed_' + tag)) return true;
+      if (localStorage.getItem(DISMISSED_TAG_KEY) === String(tag)) return true;
+    } catch (e) {}
     return false;
   }
 
@@ -3035,9 +3539,7 @@
       btnLater.style.display = '';
       btnLater.onclick = function () {
         clearUpdatePoll();
-        try {
-          sessionStorage.setItem('ctv_gh_update_postponed_' + tag, '1');
-        } catch (e) {}
+        persistDismissedUpdateTag(tag);
         modal.classList.add('hidden');
       };
     }
@@ -3049,9 +3551,7 @@
   function showNonIntrusiveUpdateBanner(release) {
     if (!release || !release.tag_name) return;
     var tag = release.tag_name;
-    try {
-      if (sessionStorage.getItem('ctv_gh_update_postponed_' + tag)) return;
-    } catch (e) {}
+    if (isUpdateTagDismissed(tag)) return;
     removeUpdateBanner();
     var banner = document.createElement('div');
     banner.id = 'ctv-update-banner';
@@ -3065,7 +3565,7 @@
     if (openBtn) openBtn.onclick = function () { showGitHubUpdateModal(release); };
     if (closeBtn) {
       closeBtn.onclick = function () {
-        try { sessionStorage.setItem('ctv_gh_update_postponed_' + tag, '1'); } catch (e) {}
+        persistDismissedUpdateTag(tag);
         removeUpdateBanner();
       };
     }
@@ -3074,11 +3574,14 @@
   function applyReleaseResult(release, forceModal) {
     if (!release || !release.tag_name) return;
     var remoteTag = release.tag_name;
-    if (!forceModal && !isNewerVersion(remoteTag, CURRENT_VERSION)) {
+    var localVer = getAuthoritativeAppVersion();
+    var bell = document.getElementById('update-bell');
+    if (!forceModal && compareSemver(remoteTag, localVer) <= 0) {
+      removeUpdateBanner();
+      if (bell) bell.classList.add('hidden');
       return;
     }
     latestReleaseData = release;
-    var bell = document.getElementById('update-bell');
     if (bell) {
       bell.classList.remove('hidden');
       bell.onclick = function (e) {
@@ -3208,8 +3711,9 @@
       var activeTag = activeNow && activeNow.tagName ? activeNow.tagName.toUpperCase() : '';
       var isTypingTarget = activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT' || (activeNow && activeNow.isContentEditable);
 
-      var subsModal = document.getElementById('ctv-subs-modal');
+      var subsModal = document.getElementById('ctv-subs-modal') || document.getElementById('ctv-quality-modal');
       if (subsModal) {
+        var isQualModal = subsModal.id === 'ctv-quality-modal';
         var subBtns = Array.prototype.slice.call(subsModal.querySelectorAll('button.focusable'));
         var curIdx = subBtns.indexOf(document.activeElement);
         if (e.key === 'ArrowDown') {
@@ -3233,7 +3737,7 @@
           e.stopPropagation();
           if (e.stopImmediatePropagation) e.stopImmediatePropagation();
           subsModal.remove();
-          var ps = document.getElementById('player-subs');
+          var ps = document.getElementById(isQualModal ? 'player-quality' : 'player-subs');
           if (ps && !ps.classList.contains('hidden')) ps.focus();
           return;
         }
@@ -3578,6 +4082,7 @@
               window.ctvToggleFavoriteItem(curFav);
             } else {
               if (typeof window.ctvInvalidateFavCache === 'function') window.ctvInvalidateFavCache();
+              if (typeof window.ctvPersistDesktopState === 'function') window.ctvPersistDesktopState();
               if (typeof window.ctvUpdateFavButtonsUI === 'function') window.ctvUpdateFavButtonsUI();
               var nowFav = typeof window.ctvIsItemFavorite === 'function' ? window.ctvIsItemFavorite(curFav) : false;
               if (typeof window.ctvShowToast === 'function') {
@@ -3865,10 +4370,10 @@
 
   var OTA_LAST_CHECK_KEY = 'ctv_ota_last_check_v1';
   var OTA_CHECK_TTL_MS = 15 * 60 * 1000;
-  var BUILTIN_OTA_REV = 12; // Nivel de parches ya integrado en este build (equivale a 1.6.0-ota.12)
+  var BUILTIN_OTA_REV = 13; // Nivel de parches ya integrado en este build (equivale a 1.6.1-ota.13)
   var pendingOtaCode = '';
   if (!window.CTV_OTA_VERSION) {
-    window.CTV_OTA_VERSION = '1.6.0-ota.12';
+    window.CTV_OTA_VERSION = '1.6.1-ota.13';
   }
 
   function extractOtaRevision(code) {
