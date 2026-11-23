@@ -5,7 +5,7 @@
  */
 (function () {
   var prevOtaVer = window.CTV_OTA_VERSION || '';
-  window.CTV_OTA_VERSION = '1.6.1-ota.13';
+  window.CTV_OTA_VERSION = '1.6.1-ota.14';
 
   // Helper seguro para ocultar y remover del DOM el splash inicial Zero-Blank-Screen
   function ctvDismissSplash() {
@@ -1461,7 +1461,7 @@
     };
 
     if (!window.__ctvHlsHookVersion) {
-      window.__ctvHlsHookVersion = 13;
+      window.__ctvHlsHookVersion = 14;
       try {
         var existingDesc = Object.getOwnPropertyDescriptor(Object.prototype, 'userConfig');
         if (!existingDesc || existingDesc.configurable !== false) {
@@ -3131,6 +3131,13 @@
           else if (f && !f.classList.contains('hidden')) f.focus();
           return;
         }
+        if ((kc === 23 || kc === 66 || e.key === 'Select' || e.key === 'NumpadEnter') && active && typeof active.click === 'function' && !e.repeat) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          active.click();
+          return;
+        }
         return;
       }
 
@@ -3499,8 +3506,42 @@
       if (window.DesktopBridge && typeof window.DesktopBridge.appVersion === 'string' && window.DesktopBridge.appVersion) {
         return window.DesktopBridge.appVersion;
       }
+      if (detectPlatformOta() === 'android') {
+        if (window.AndroidBridge && typeof window.AndroidBridge.getAppVersionName === 'function') {
+          try {
+            var androidVer = window.AndroidBridge.getAppVersionName();
+            if (androidVer) return String(androidVer).trim();
+          } catch (e) {}
+        }
+        return window.CTV_ANDROID_APK_VERSION || '1.6.0';
+      }
       return window.CTV_APP_VERSION || '1.6.1';
     }
+    window.ctvGetAuthoritativeAppVersion = getAuthoritativeAppVersion;
+
+    function resolveEffectiveReleaseVersion(release, platform) {
+      if (!release) return '';
+      var plat = platform || detectPlatformOta();
+      var fallbackTag = String(release.tag_name || release.name || '').trim();
+      if (plat === 'android' && Array.isArray(release.assets)) {
+        for (var i = 0; i < release.assets.length; i++) {
+          var a = release.assets[i];
+          if (!a) continue;
+          var aName = String(a.name || '');
+          var aUrl = String(a.browser_download_url || '');
+          if (/\.apk(\?|$)/i.test(aName) || /\.apk(\?|$)/i.test(aUrl)) {
+            var m = aName.match(/(\d+\.\d+\.\d+)/);
+            if (!m && aUrl) {
+              var urlFile = aUrl.split('?')[0].split('/').pop() || aUrl;
+              m = urlFile.match(/(\d+\.\d+\.\d+)/) || aUrl.match(/(\d+\.\d+\.\d+)/);
+            }
+            if (m && m[1]) return m[1];
+          }
+        }
+      }
+      return fallbackTag;
+    }
+    window.ctvResolveEffectiveReleaseVersion = resolveEffectiveReleaseVersion;
 
     function ctvFetchWithTimeout(url, opts, timeoutMs) {
       var ms = timeoutMs || 5000;
@@ -3751,10 +3792,11 @@
 
     function applyReleaseDataOta(release, forceModal) {
       if (!release || !release.tag_name) return;
-      var remoteTag = release.tag_name;
+      var platform = detectPlatformOta();
+      var effectiveRemoteVer = resolveEffectiveReleaseVersion(release, platform);
       var localVer = getAuthoritativeAppVersion();
       var bell = document.getElementById('update-bell');
-      if (!forceModal && compareSemver(remoteTag, localVer) <= 0) {
+      if (!forceModal && compareSemver(effectiveRemoteVer, localVer) <= 0) {
         removeUpdateBanner();
         if (bell) bell.classList.add('hidden');
         return;
