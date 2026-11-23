@@ -1,12 +1,14 @@
 /**
  * Desktop & iOS Bridge + Fullscreen/Storage Helpers for CTV
  * Preserves native window.AndroidBridge on Android/Smart TV while providing
- * compatibility, storage persistence, and IPC-safe fullscreen helpers on Desktop & iOS.
+ * compatibility, atomic disk persistence, and IPC-safe fullscreen helpers on Desktop & iOS.
  */
 (function () {
   if (window.__ctvDesktopBridgeInit) return;
   window.__ctvDesktopBridgeInit = true;
-  window.CTV_APP_VERSION = '1.6.0';
+  window.CTV_APP_VERSION =
+    (window.DesktopBridge && typeof window.DesktopBridge.appVersion === 'string' && window.DesktopBridge.appVersion) ||
+    '1.6.1';
 
   window.__ctvIsFullscreen = false;
   document.addEventListener('fullscreenchange', function () {
@@ -55,13 +57,190 @@
     return Promise.resolve(false);
   };
 
-  // Preservar AndroidBridge nativo en Android / Android TV cuando MainActivity ya lo inyectó
-  if (window.AndroidBridge && typeof window.AndroidBridge.playChannelFull === 'function') {
-    return;
-  }
-
+  var FAV_MOVIES_KEY = 'pj2_favs_movies';
+  var FAV_SERIES_KEY = 'pj2_favs_series';
   var FAVS_KEY = 'pj2_favs_slugs';
   var WATCHED_KEY = 'pj2_vistos';
+  var PREFS_KEY = 'ctv_user_prefs_v1';
+  var DISMISSED_UPD_KEY = 'ctv_dismissed_update_v1';
+  var STATE_TS_KEY = 'ctv_state_updated_at';
+
+  var isNativeAndroid = Boolean(window.AndroidBridge && typeof window.AndroidBridge.playChannelFull === 'function');
+  var isCapNative = Boolean(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()) || isNativeAndroid;
+  var isDesktopRuntime = !isCapNative && (location.hostname === '127.0.0.1' || Boolean(window.DesktopBridge) || /Electron/i.test(navigator.userAgent || ''));
+
+  function safeReadJson(key, fallback) {
+    try {
+      var raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      var parsed = JSON.parse(raw);
+      return parsed != null ? parsed : fallback;
+    } catch (e) {
+      return fallback;
+    }
+  }
+
+  function mergeBySlug(localArr, diskArr) {
+    var map = new Map();
+    (Array.isArray(diskArr) ? diskArr : []).forEach(function (it) {
+      if (it && typeof it === 'object' && it.slug) map.set(String(it.slug), it);
+    });
+    (Array.isArray(localArr) ? localArr : []).forEach(function (it) {
+      if (it && typeof it === 'object' && it.slug) map.set(String(it.slug), Object.assign({}, map.get(String(it.slug)) || {}, it));
+    });
+    return Array.from(map.values());
+  }
+
+  function mergeStringLists(localArr, diskArr) {
+    var set = new Set();
+    (Array.isArray(diskArr) ? diskArr : []).forEach(function (s) { if (s) set.add(String(s)); });
+    (Array.isArray(localArr) ? localArr : []).forEach(function (s) { if (s) set.add(String(s)); });
+    return Array.from(set);
+  }
+
+  function collectLocalStateSnapshot(patch) {
+    patch = patch || {};
+    return {
+      favMovies: Array.isArray(patch.favMovies) ? patch.favMovies : safeReadJson(FAV_MOVIES_KEY, []),
+      favSeries: Array.isArray(patch.favSeries) ? patch.favSeries : safeReadJson(FAV_SERIES_KEY, []),
+      favTvSlugs: Array.isArray(patch.favTvSlugs) ? patch.favTvSlugs : safeReadJson(FAVS_KEY, []),
+      watched: Array.isArray(patch.watched) ? patch.watched : safeReadJson(WATCHED_KEY, []),
+      userPrefs: patch.userPrefs && typeof patch.userPrefs === 'object' ? patch.userPrefs : safeReadJson(PREFS_KEY, {}),
+      dismissedUpdateTag:
+        typeof patch.dismissedUpdateTag === 'string'
+          ? patch.dismissedUpdateTag
+          : (localStorage.getItem(DISMISSED_UPD_KEY) || '')
+    };
+  }
+
+  function applyDiskStateToLocalStorage(diskState, forceReplace) {
+    if (!diskState || typeof diskState !== 'object') return false;
+    var diskTs = Number(diskState.updatedAt) || 0;
+    if (!diskTs && !forceReplace) return false;
+    var localTs = Number(localStorage.getItem(STATE_TS_KEY) || '0') || 0;
+    var replaceLists = Boolean(forceReplace || (localTs > 0 && diskTs >= localTs));
+    var changed = false;
+    try {
+      var curMovies = safeReadJson(FAV_MOVIES_KEY, []);
+      var nextMovies = replaceLists ? (Array.isArray(diskState.favMovies) ? diskState.favMovies : curMovies) : mergeBySlug(curMovies, diskState.favMovies);
+      if (JSON.stringify(nextMovies) !== JSON.stringify(curMovies)) {
+        localStorage.setItem(FAV_MOVIES_KEY, JSON.stringify(nextMovies));
+        changed = true;
+      }
+
+      var curSeries = safeReadJson(FAV_SERIES_KEY, []);
+      var nextSeries = replaceLists ? (Array.isArray(diskState.favSeries) ? diskState.favSeries : curSeries) : mergeBySlug(curSeries, diskState.favSeries);
+      if (JSON.stringify(nextSeries) !== JSON.stringify(curSeries)) {
+        localStorage.setItem(FAV_SERIES_KEY, JSON.stringify(nextSeries));
+        changed = true;
+      }
+
+      var curTv = safeReadJson(FAVS_KEY, []);
+      var nextTv = replaceLists ? (Array.isArray(diskState.favTvSlugs) ? diskState.favTvSlugs : curTv) : mergeStringLists(curTv, diskState.favTvSlugs);
+      if (JSON.stringify(nextTv) !== JSON.stringify(curTv)) {
+        localStorage.setItem(FAVS_KEY, JSON.stringify(nextTv));
+        changed = true;
+      }
+
+      var curWatched = safeReadJson(WATCHED_KEY, []);
+      var nextWatched = replaceLists ? (Array.isArray(diskState.watched) ? diskState.watched : curWatched) : mergeStringLists(curWatched, diskState.watched);
+      if (JSON.stringify(nextWatched) !== JSON.stringify(curWatched)) {
+        localStorage.setItem(WATCHED_KEY, JSON.stringify(nextWatched));
+        changed = true;
+      }
+
+      if (diskState.userPrefs && typeof diskState.userPrefs === 'object' && Object.keys(diskState.userPrefs).length > 0) {
+        var curPrefs = safeReadJson(PREFS_KEY, {});
+        var nextPrefs = replaceLists ? Object.assign({}, curPrefs, diskState.userPrefs) : Object.assign({}, diskState.userPrefs, curPrefs);
+        localStorage.setItem(PREFS_KEY, JSON.stringify(nextPrefs));
+      }
+
+      if (diskState.dismissedUpdateTag) {
+        localStorage.setItem(DISMISSED_UPD_KEY, String(diskState.dismissedUpdateTag));
+      }
+      if (diskTs > 0) {
+        localStorage.setItem(STATE_TS_KEY, String(Math.max(diskTs, localTs)));
+      }
+    } catch (e) {}
+    return changed;
+  }
+
+  window.ctvPersistDesktopState = function (patch, useBeacon) {
+    if (!isDesktopRuntime) return Promise.resolve(null);
+    try {
+      var nowTs = Date.now();
+      try { localStorage.setItem(STATE_TS_KEY, String(nowTs)); } catch (e) {}
+      var snapshot = collectLocalStateSnapshot(patch);
+      if (useBeacon && typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function' && location.hostname === '127.0.0.1') {
+        try {
+          navigator.sendBeacon('/__ctv_state', JSON.stringify(snapshot));
+        } catch (e) {}
+      }
+      if (window.DesktopBridge && typeof window.DesktopBridge.savePersistentState === 'function') {
+        return window.DesktopBridge.savePersistentState(snapshot).catch(function () { return null; });
+      }
+      if (location.hostname === '127.0.0.1' && typeof fetch === 'function') {
+        var fFn = window.__ctvTrueNativeFetch || window.fetch.bind(window);
+        return fFn('/__ctv_state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CTV-Local': '1' },
+          body: JSON.stringify(snapshot),
+          keepalive: true
+        }).then(function (r) { return r.json(); }).catch(function () { return null; });
+      }
+    } catch (e) {}
+    return Promise.resolve(null);
+  };
+
+  window.ctvHydratePersistentState = function (forceSyncXhr) {
+    if (!isDesktopRuntime) return Promise.resolve(false);
+    // 1. Hidratación síncrona temprana exclusivamente en Desktop loopback (127.0.0.1), nunca en Android/iOS Capacitor
+    if (location.hostname === '127.0.0.1' && typeof XMLHttpRequest === 'function' && (!window.__ctvSyncHydrated || forceSyncXhr)) {
+      window.__ctvSyncHydrated = true;
+      try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '/__ctv_state', false);
+        try { xhr.setRequestHeader('X-CTV-Local', '1'); } catch (e0) {}
+        xhr.send(null);
+        if (xhr.status === 200 && xhr.responseText) {
+          var j = JSON.parse(xhr.responseText);
+          if (j && j.state) {
+            applyDiskStateToLocalStorage(j.state, false);
+          }
+        }
+      } catch (e) {}
+    }
+    // 2. Respaldo asíncrono vía IPC contextBridge y sincronización de unión a disco
+    if (window.DesktopBridge && typeof window.DesktopBridge.loadPersistentState === 'function') {
+      return window.DesktopBridge.loadPersistentState()
+        .then(function (diskState) {
+          var didChange = applyDiskStateToLocalStorage(diskState, false);
+          window.ctvPersistDesktopState();
+          if (didChange) {
+            if (typeof window.ctvInvalidateFavCache === 'function') window.ctvInvalidateFavCache();
+            if (typeof window.ctvUpdateFavButtonsUI === 'function') window.ctvUpdateFavButtonsUI();
+          }
+          return didChange;
+        })
+        .catch(function () { return false; });
+    }
+    return Promise.resolve(false);
+  };
+
+  if (isDesktopRuntime) {
+    window.ctvHydratePersistentState();
+    window.addEventListener('pagehide', function () {
+      window.ctvPersistDesktopState(null, true);
+    });
+    window.addEventListener('beforeunload', function () {
+      window.ctvPersistDesktopState(null, true);
+    });
+  }
+
+  // Preservar AndroidBridge nativo en Android / Android TV cuando MainActivity ya lo inyectó
+  if (isNativeAndroid) {
+    return;
+  }
 
   function getFavSet() {
     try {
@@ -87,8 +266,8 @@
 
   window.AndroidBridge = {
     getAppVersionCode: function () {
-      // Matches current server versionCode (5) so API requests send app_version=5
-      return 5;
+      // Doble cinturón en Desktop: entero alto seguro (9999) compatible con la API de catálogo para que OK() jamás dispare un falso modal
+      return 9999;
     },
     getAppVersionName: function () {
       return window.CTV_APP_VERSION;
@@ -109,7 +288,9 @@
         var favs = getFavSet();
         if (isFav) favs.add(slug);
         else favs.delete(slug);
-        localStorage.setItem(FAVS_KEY, JSON.stringify(Array.from(favs)));
+        var arr = Array.from(favs);
+        localStorage.setItem(FAVS_KEY, JSON.stringify(arr));
+        window.ctvPersistDesktopState({ favTvSlugs: arr });
       } catch (e) {}
     },
     isWatched: function (slug, t, e) {
@@ -121,7 +302,9 @@
         var id = watchedId(slug, t, e);
         if (watched) set.add(id);
         else set.delete(id);
-        localStorage.setItem(WATCHED_KEY, JSON.stringify(Array.from(set)));
+        var arr = Array.from(set);
+        localStorage.setItem(WATCHED_KEY, JSON.stringify(arr));
+        window.ctvPersistDesktopState({ watched: arr });
       } catch (e) {}
     }
   };
