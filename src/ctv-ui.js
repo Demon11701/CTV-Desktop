@@ -383,11 +383,197 @@
       pruneObjectCache(window.__ctvDetailCache, 80);
     }
 
+    function ctvSha256Hex(str) {
+      var ascii = unescape(encodeURIComponent(String(str || '')));
+      var rightRotate = function (value, amount) {
+        return (value >>> amount) | (value << (32 - amount));
+      };
+      var maxWord = Math.pow(2, 32);
+      var i, j;
+      var result = '';
+      var words = [];
+      var asciiBitLength = ascii.length * 8;
+      var hash = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+      ];
+      var k = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+      ];
+      ascii += '\x80';
+      while (ascii.length % 64 - 56) ascii += '\x00';
+      for (i = 0; i < ascii.length; i++) {
+        j = ascii.charCodeAt(i);
+        words[i >> 2] |= j << ((3 - i) % 4) * 8;
+      }
+      words[words.length] = ((asciiBitLength / maxWord) | 0);
+      words[words.length] = (asciiBitLength | 0);
+      for (j = 0; j < words.length;) {
+        var w = words.slice(j, j += 16);
+        var oldHash = hash.slice(0);
+        for (i = 0; i < 64; i++) {
+          var w15 = w[i - 15], w2 = w[i - 2];
+          var a = hash[0], e = hash[4];
+          var temp1 = hash[7]
+            + (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25))
+            + ((e & hash[5]) ^ ((~e) & hash[6]))
+            + k[i]
+            + (w[i] = (i < 16) ? w[i] : (
+              w[i - 16]
+              + (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3))
+              + w[i - 7]
+              + (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))
+            ) | 0);
+          var temp2 = (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22))
+            + ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
+          hash = [(temp1 + temp2) | 0].concat(hash);
+          hash[4] = (hash[4] + temp1) | 0;
+          hash.length = 8;
+        }
+        for (i = 0; i < 8; i++) {
+          hash[i] = (hash[i] + oldHash[i]) | 0;
+        }
+      }
+      for (i = 0; i < 8; i++) {
+        for (j = 3; j + 1; j--) {
+          var b = (hash[i] >> (j * 8)) & 255;
+          result += ((b < 16) ? 0 : '') + b.toString(16);
+        }
+      }
+      return result;
+    }
+
+    var PJ_CERT_SHA256 = '9381e4d77c1d42a3d02472331249bed8e76a8df6af7082214ea8fcfc30aa653d';
+    var PJ_PACKAGE_NAME = 'com.pelisjuanita.app';
+    window.__ctvPjSec = window.__ctvPjSec || {
+      rule: 'r1',
+      seed: 'pj_sec_seed_2026_init',
+      fetchedAt: 0
+    };
+
+    function ctvBuildPjToken(extra, customSeed, customRule) {
+      var h = extra != null ? String(extra) : '';
+      var sec = window.__ctvPjSec || { rule: 'r1', seed: 'pj_sec_seed_2026_init' };
+      var seed = customSeed != null ? String(customSeed) : String(sec.seed || 'pj_sec_seed_2026_init');
+      var rule = (customRule && String(customRule).length > 0) ? String(customRule) : String(sec.rule || 'r1');
+      var minute = Math.floor(Date.now() / 1000 / 60);
+      var raw = '';
+      if (rule === 'r2') {
+        raw = seed + ':' + minute + ':' + PJ_CERT_SHA256 + ':' + h + ':' + PJ_PACKAGE_NAME;
+      } else if (rule === 'r3') {
+        raw = PJ_PACKAGE_NAME + ':' + h + ':' + minute + ':' + seed + ':' + PJ_CERT_SHA256;
+      } else if (rule === 'r4') {
+        raw = PJ_CERT_SHA256 + '#' + seed + '#' + h + '#' + minute;
+      } else {
+        raw = PJ_CERT_SHA256 + ':' + PJ_PACKAGE_NAME + ':' + h + ':' + seed + ':' + minute;
+      }
+      return ctvSha256Hex(raw) + '.' + minute;
+    }
+    window.ctvBuildPjToken = ctvBuildPjToken;
+    try {
+      if (window.AndroidBridge && typeof window.AndroidBridge.getSecurityToken !== 'function') {
+        window.AndroidBridge.getSecurityToken = ctvBuildPjToken;
+      }
+    } catch (e) {}
+
+    function updatePjSecFromVersionJson(vJson) {
+      if (vJson && typeof vJson === 'object') {
+        if (vJson.sec_rule) window.__ctvPjSec.rule = String(vJson.sec_rule);
+        if (vJson.sec_seed) window.__ctvPjSec.seed = String(vJson.sec_seed);
+        window.__ctvPjSec.fetchedAt = Date.now();
+      }
+    }
+
+    var _pjSecInFlight = null;
+    function ensurePjSecConfig(forceRefresh) {
+      try {
+        if (!forceRefresh && window.__ctvPjSec && window.__ctvPjSec.fetchedAt) {
+          return Promise.resolve(window.__ctvPjSec);
+        }
+        if (_pjSecInFlight) return _pjSecInFlight;
+        _pjSecInFlight = (async function () {
+          var vUrl = 'https://pelisjuanita.com/tv/app/version.php?app_version=7';
+          try {
+            var vResp = await _nativeFetch(vUrl, { cache: 'no-store' });
+            if (vResp && vResp.ok) {
+              var vJson = await vResp.json().catch(function () { return null; });
+              updatePjSecFromVersionJson(vJson);
+            } else if (typeof ctvFetchPjBypass === 'function') {
+              var vByp = await ctvFetchPjBypass(vUrl);
+              if (vByp) updatePjSecFromVersionJson(vByp);
+            }
+          } catch (e) {
+            try {
+              if (typeof ctvFetchPjBypass === 'function') {
+                var vByp2 = await ctvFetchPjBypass(vUrl);
+                if (vByp2) updatePjSecFromVersionJson(vByp2);
+              }
+            } catch (e2) {}
+          } finally {
+            _pjSecInFlight = null;
+          }
+          return window.__ctvPjSec;
+        })();
+        return _pjSecInFlight;
+      } catch (e) {
+        _pjSecInFlight = null;
+        return Promise.resolve(window.__ctvPjSec);
+      }
+    }
+    ensurePjSecConfig(false);
+
+    function ctvSignPjUrl(rawUrl) {
+      if (!rawUrl || typeof rawUrl !== 'string') return rawUrl;
+      if (rawUrl.indexOf('pelisjuanita.com/tv/app/') < 0) return rawUrl;
+      var hashIdx = rawUrl.indexOf('#');
+      var base = hashIdx >= 0 ? rawUrl.slice(0, hashIdx) : rawUrl;
+      var hash = hashIdx >= 0 ? rawUrl.slice(hashIdx) : '';
+      var cleanUrl = base
+        .replace(/([?&])pj_token=[^&]*(&)?/g, function (_m, sep, trail) {
+          if (sep === '?' && trail) return '?';
+          return trail ? sep : '';
+        })
+        .replace(/[?&]+$/, '');
+      var signed = cleanUrl + (cleanUrl.indexOf('?') >= 0 ? '&' : '?') + 'pj_token=' + encodeURIComponent(ctvBuildPjToken(''));
+      return signed + hash;
+    }
+
+    async function ctvFetchPjAuthed(rawUrl, init) {
+      var signedUrl = ctvSignPjUrl(rawUrl);
+      var resp = await _nativeFetch(signedUrl, init);
+      if (resp && resp.status === 403 && rawUrl.indexOf('/app/version.php') < 0) {
+        await ensurePjSecConfig(true);
+        var reSignedUrl = ctvSignPjUrl(rawUrl);
+        resp = await _nativeFetch(reSignedUrl, init);
+      }
+      return resp;
+    }
+
+    function cacheCatalogListJson(j) {
+      if (!j) return;
+      var items = Array.isArray(j.datos) ? j.datos : (Array.isArray(j) ? j : []);
+      if (Array.isArray(j.sections)) {
+        j.sections.forEach(function (sec) {
+          if (Array.isArray(sec.data)) items = items.concat(sec.data);
+        });
+      }
+      items.forEach(saveCatalogItem);
+      setTimeout(ctvUpdateFavButtonsUI, 120);
+    }
+
     async function ctvFetchPjBypass(targetUrl) {
       // 1. Desktop proxy (nunca confundir con localhost de Capacitor en Android/iOS)
       if (ctvIsDesktopProxyAvailable()) {
         for (var dAttempt = 0; dAttempt < 3; dAttempt++) {
           try {
+            targetUrl = ctvSignPjUrl(targetUrl);
             var pUrl = '/__ctv_proxy?url=' + encodeURIComponent(targetUrl) + '&ref=' + encodeURIComponent('https://pelisjuanita.com/');
             var pr = await _nativeFetch(pUrl);
             if (pr.ok) {
@@ -405,6 +591,7 @@
       if (window.Capacitor && typeof window.Capacitor.nativePromise === 'function') {
         for (var cAttempt = 0; cAttempt < 3; cAttempt++) {
           try {
+            targetUrl = ctvSignPjUrl(targetUrl);
             var rndIp = ctvGetRandomIp();
             var capRes = await window.Capacitor.nativePromise('CapacitorHttp', 'request', {
               url: targetUrl,
@@ -427,6 +614,7 @@
 
       // 3. Fetch sin cookies (credentials: 'omit' es seguro ante CORS y evita enviar PHPSESSID/user_identifier)
       try {
+        targetUrl = ctvSignPjUrl(targetUrl);
         var rOmit = await _nativeFetch(targetUrl, {
           headers: { Accept: 'application/json' },
           credentials: 'omit',
@@ -491,6 +679,7 @@
           if (vResp && vResp.ok) {
             var vJson = await vResp.clone().json().catch(function () { return null; });
             if (vJson && typeof vJson === 'object') {
+              updatePjSecFromVersionJson(vJson);
               vJson.versionCode = 0;
               vJson.minVersionCode = 0;
               return jsonResponse(vJson);
@@ -503,7 +692,7 @@
       // 0B. Agenda Deportiva (api-agenda.php): respaldo automático si falla el fetch directo
       if (url.indexOf('api-agenda.php') >= 0) {
         try {
-          var agResp = await _nativeFetch.apply(this, arguments);
+          var agResp = await ctvFetchPjAuthed(url, init);
           if (agResp.ok) {
             var agClone = agResp.clone();
             var agJson = await agClone.json().catch(function () { return null; });
@@ -516,33 +705,28 @@
         if (agByp && Array.isArray(agByp.data)) {
           return jsonResponse(agByp);
         }
-        return _nativeFetch.apply(this, arguments);
+        return ctvFetchPjAuthed(url, init);
       }
 
       // 1. Listados de catálogo (home, movies, series, buscar): NUNCA inyectar cabeceras prohibidas por CORS
       var isCatalogList = url.indexOf('/app/movies.php') >= 0 || url.indexOf('/app/series.php') >= 0 || url.indexOf('/app/home.php') >= 0 || url.indexOf('/app/buscar.php') >= 0;
       if (isCatalogList && url.indexOf('slug=') < 0) {
         try {
-          var resp = await _nativeFetch.apply(this, arguments);
-          var clone = resp.clone();
-          clone.json().then(function (j) {
-            if (!j) return;
-            var items = Array.isArray(j.datos) ? j.datos : (Array.isArray(j) ? j : []);
-            if (Array.isArray(j.sections)) {
-              j.sections.forEach(function (sec) {
-                if (Array.isArray(sec.data)) items = items.concat(sec.data);
-              });
+          var resp = await ctvFetchPjAuthed(url, init);
+          if (resp && !resp.ok) {
+            var bypListHttp = await ctvFetchPjBypass(url);
+            if (bypListHttp) {
+              cacheCatalogListJson(bypListHttp);
+              return jsonResponse(bypListHttp);
             }
-            items.forEach(saveCatalogItem);
-            setTimeout(ctvUpdateFavButtonsUI, 120);
-          }).catch(function () {});
+          }
+          var clone = resp.clone();
+          clone.json().then(cacheCatalogListJson).catch(function () {});
           return resp;
         } catch (e) {
           var bypList = await ctvFetchPjBypass(url);
           if (bypList) {
-            var bItems = Array.isArray(bypList.datos) ? bypList.datos : (Array.isArray(bypList) ? bypList : []);
-            bItems.forEach(saveCatalogItem);
-            setTimeout(ctvUpdateFavButtonsUI, 120);
+            cacheCatalogListJson(bypList);
             return jsonResponse(bypList);
           }
           throw e;
@@ -562,7 +746,7 @@
         }
 
         try {
-          var mResp = await _nativeFetch.apply(this, arguments);
+          var mResp = await ctvFetchPjAuthed(url, init);
           if (mResp.status === 200) {
             var mClone = mResp.clone();
             var mJson = await mClone.json().catch(function () { return null; });
@@ -603,7 +787,7 @@
         }
 
         try {
-          var sResp = await _nativeFetch.apply(this, arguments);
+          var sResp = await ctvFetchPjAuthed(url, init);
           if (sResp.status === 200) {
             var sClone = sResp.clone();
             var sJson = await sClone.json().catch(function () { return null; });
@@ -640,7 +824,7 @@
       // 4. Lista de episodios de temporada (series.php?slug=...&t=1 sin &e=)
       if (url.indexOf('/app/series.php?') >= 0 && url.indexOf('&t=') >= 0 && url.indexOf('&e=') < 0) {
         try {
-          var tResp = await _nativeFetch.apply(this, arguments);
+          var tResp = await ctvFetchPjAuthed(url, init);
           if (tResp.status === 200) {
             var tClone = tResp.clone();
             var tJson = await tClone.json().catch(function () { return null; });
@@ -662,7 +846,7 @@
         }
 
         try {
-          var epResp = await _nativeFetch.apply(this, arguments);
+          var epResp = await ctvFetchPjAuthed(url, init);
           if (epResp.status === 200) {
             var epClone = epResp.clone();
             var epJson = await epClone.json().catch(function () { return null; });
@@ -682,7 +866,7 @@
         return jsonResponse({ status: 'ok', servidores: [] });
       }
 
-      return _nativeFetch.apply(this, arguments);
+      return ctvFetchPjAuthed(url, init);
     };
   } catch (e) {}
 
@@ -1719,7 +1903,7 @@
   };
 
   if (!window.__ctvHlsHookVersion) {
-    window.__ctvHlsHookVersion = 14;
+    window.__ctvHlsHookVersion = 15;
     try {
       var existingDesc = Object.getOwnPropertyDescriptor(Object.prototype, 'userConfig');
       if (!existingDesc || existingDesc.configurable !== false) {
@@ -4412,10 +4596,10 @@
 
   var OTA_LAST_CHECK_KEY = 'ctv_ota_last_check_v1';
   var OTA_CHECK_TTL_MS = 15 * 60 * 1000;
-  var BUILTIN_OTA_REV = 14; // Nivel de parches ya integrado en este build (equivale a 1.6.1-ota.14)
+  var BUILTIN_OTA_REV = 15; // Nivel de parches ya integrado en este build (equivale a 1.6.1-ota.15)
   var pendingOtaCode = '';
   if (!window.CTV_OTA_VERSION) {
-    window.CTV_OTA_VERSION = '1.6.1-ota.14';
+    window.CTV_OTA_VERSION = '1.6.1-ota.15';
   }
 
   function extractOtaRevision(code) {
