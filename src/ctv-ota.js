@@ -5,7 +5,186 @@
  */
 (function () {
   var prevOtaVer = window.CTV_OTA_VERSION || '';
-  window.CTV_OTA_VERSION = '1.6.1-ota.15';
+  window.CTV_OTA_VERSION = '1.6.2-ota.19';
+
+  var CTV_ICONS = {
+    back: '<path d="M15 18l-6-6 6-6"/>',
+    play: '<polygon points="7 5 19 12 7 19 7 5" fill="currentColor" stroke="currentColor"/>',
+    restart: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><polyline points="3 3 3 8 8 8"/>',
+    star: '<polygon points="12 3.2 14.7 8.7 20.8 9.6 16.4 13.9 17.4 20 12 17.1 6.6 20 7.6 13.9 3.2 9.6 9.3 8.7 12 3.2"/>',
+    'star-filled': '<polygon points="12 3.2 14.7 8.7 20.8 9.6 16.4 13.9 17.4 20 12 17.1 6.6 20 7.6 13.9 3.2 9.6 9.3 8.7 12 3.2" fill="currentColor"/>',
+    quality: '<line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="9" cy="7" r="2.3" fill="#141821"/><circle cx="15" cy="17" r="2.3" fill="#141821"/>',
+    image: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="12" cy="12" r="3.5"/><path d="M12 8.5v7"/>',
+    subtitles: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M10.5 10.2a2.2 2.2 0 1 0 0 3.6"/><path d="M16.5 10.2a2.2 2.2 0 1 0 0 3.6"/>',
+    search: '<circle cx="11" cy="11" r="6.5"/><line x1="16" y1="16" x2="20.5" y2="20.5"/>',
+    bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M10.3 19.5a2 2 0 0 0 3.4 0"/>',
+    check: '<polyline points="5 12.5 9.5 17 19 7.5"/>',
+    close: '<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>',
+    server: '<polygon points="12 3 3 7.5 12 12 21 7.5 12 3"/><polyline points="3 12 12 16.5 21 12"/><polyline points="3 16.5 12 21 21 16.5"/>',
+    tv: '<rect x="3" y="6" width="18" height="13" rx="2.5"/><polyline points="8 2.5 12 6 16 2.5"/>',
+    film: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><line x1="7.5" y1="4" x2="7.5" y2="20"/><line x1="16.5" y1="4" x2="16.5" y2="20"/><line x1="3" y1="9.5" x2="7.5" y2="9.5"/><line x1="3" y1="14.5" x2="7.5" y2="14.5"/><line x1="16.5" y1="9.5" x2="21" y2="9.5"/><line x1="16.5" y1="14.5" x2="21" y2="14.5"/>',
+    series: '<rect x="3" y="7" width="18" height="13" rx="2.5"/><line x1="6.5" y1="3.5" x2="17.5" y2="3.5"/><polygon points="10.5 10.8 15 13.5 10.5 16.2 10.5 10.8" fill="currentColor"/>',
+    warning: '<path d="M12 3.5L2.6 19.5a1.5 1.5 0 0 0 1.3 2.3h16.2a1.5 1.5 0 0 0 1.3-2.3L12 3.5z"/><line x1="12" y1="9.5" x2="12" y2="14"/><circle cx="12" cy="17.5" r="0.8" fill="currentColor"/>'
+  };
+
+  function ctvIcon(name, size) {
+    var s = size || 16;
+    var body = Object.prototype.hasOwnProperty.call(CTV_ICONS, name) ? CTV_ICONS[name] : '';
+    return '<svg class="ctv-ic ctv-ic-' + name + '" width="' + s + '" height="' + s + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + body + '</svg>';
+  }
+  window.CTV_ICONS = CTV_ICONS;
+  window.ctvIcon = ctvIcon;
+
+  var EMOJI_STRIP_RE = /(?:[\uD83C-\uDBFF][\uDC00-\uDFFF]|[\u2600-\u27BF]|\uFE0F|\u200D|\u2B50|\u25B6|\u25C0|\u2714|\u2715|\u26A1|\u26DB)+/g;
+
+  function cleanElementTextNodes(el, trimTrailing) {
+    if (!el || !el.childNodes) return;
+    for (var i = 0; i < el.childNodes.length; i++) {
+      var n = el.childNodes[i];
+      if (n && n.nodeType === 3 && n.nodeValue) {
+        var nextVal = n.nodeValue.replace(EMOJI_STRIP_RE, '').replace(/\s{2,}/g, ' ');
+        nextVal = trimTrailing ? nextVal.trim() : nextVal.replace(/^\s+/, '');
+        if (nextVal !== n.nodeValue) n.nodeValue = nextVal;
+      }
+    }
+  }
+
+  function ctvUpgradeStaticChromeIcons() {
+    try {
+      var sIcon = document.querySelector('.search-icon');
+      if (sIcon && !sIcon.querySelector('.ctv-ic')) {
+        sIcon.innerHTML = ctvIcon('search', 16);
+      }
+      var sClear = document.getElementById('search-clear');
+      if (sClear && !sClear.querySelector('.ctv-ic')) {
+        sClear.innerHTML = ctvIcon('close', 15);
+        sClear.setAttribute('aria-label', 'Limpiar búsqueda');
+      }
+      var dBack = document.getElementById('detail-topback');
+      if (dBack && !dBack.querySelector('.ctv-ic')) {
+        dBack.innerHTML = ctvIcon('back', 16) + '<span class="ctv-btn-lbl">Volver</span>';
+        dBack.setAttribute('aria-label', 'Volver');
+      }
+      var pBack = document.getElementById('player-back');
+      if (pBack && !pBack.querySelector('.ctv-ic')) {
+        pBack.innerHTML = ctvIcon('back', 16) + '<span class="ctv-btn-lbl">Volver</span>';
+        pBack.setAttribute('aria-label', 'Volver');
+      }
+      var pSubs = document.getElementById('player-subs');
+      if (pSubs && !pSubs.querySelector('.ctv-ic')) {
+        pSubs.innerHTML = ctvIcon('subtitles', 16) + '<span class="ctv-btn-lbl">Subtítulos</span>';
+        pSubs.setAttribute('aria-label', 'Subtítulos');
+      }
+      var pFav = document.getElementById('player-fav');
+      if (pFav && !pFav.querySelector('.ctv-ic')) {
+        pFav.innerHTML = ctvIcon('star', 16) + '<span class="ctv-btn-lbl">Favorito</span>';
+        pFav.setAttribute('aria-label', 'Favorito');
+      }
+      var srvClose = document.getElementById('server-close');
+      if (srvClose && !srvClose.querySelector('.ctv-ic')) {
+        srvClose.innerHTML = ctvIcon('close', 16) + '<span class="ctv-btn-lbl">Cerrar</span>';
+        srvClose.setAttribute('aria-label', 'Cerrar');
+      }
+      var updBtn = document.getElementById('btn-update-install');
+      if (updBtn && !updBtn.querySelector('.ctv-ic')) {
+        updBtn.innerHTML = ctvIcon('bell', 16) + '<span>Actualizar ahora</span>';
+      }
+      var rotIcon = document.querySelector('.rotate-icon');
+      if (rotIcon && !rotIcon.querySelector('.ctv-ic')) {
+        rotIcon.innerHTML = ctvIcon('restart', 28);
+      }
+    } catch (e) {}
+  }
+  window.ctvUpgradeStaticChromeIcons = ctvUpgradeStaticChromeIcons;
+
+  function ctvSanitizeContainerEmojis(root) {
+    if (!root || !root.querySelectorAll) return;
+    try {
+      root.querySelectorAll('.badge-top:not([data-ctv-clean])').forEach(function (el) {
+        el.textContent = 'TOP';
+        el.dataset.ctvClean = '1';
+      });
+
+      root.querySelectorAll('.movie-rating:not([data-ctv-clean])').forEach(function (el) {
+        var num = (el.textContent || '').replace(/[^\d.]+/g, '').trim();
+        if (num) {
+          el.innerHTML = ctvIcon('star-filled', 12) + '<span>' + num + '</span>';
+        } else {
+          el.textContent = '';
+        }
+        el.dataset.ctvClean = '1';
+      });
+
+      root.querySelectorAll('.fav-star:not([data-ctv-clean])').forEach(function (el) {
+        el.innerHTML = ctvIcon('star-filled', 13);
+        el.dataset.ctvClean = '1';
+      });
+
+      root.querySelectorAll('#detail-watch:not([data-ctv-clean])').forEach(function (el) {
+        el.innerHTML = ctvIcon('play', 16) + '<span>Ver ahora</span>';
+        el.dataset.ctvClean = '1';
+      });
+
+      root.querySelectorAll('#detail-trailer:not([data-ctv-clean])').forEach(function (el) {
+        el.innerHTML = ctvIcon('film', 16) + '<span>Tráiler</span>';
+        el.dataset.ctvClean = '1';
+      });
+
+      root.querySelectorAll('#detail-servers button:not([data-ctv-clean]), #serie-servers-wrap .server-list button:not([data-ctv-clean]), .agenda-embeds .pill:not([data-ctv-clean])').forEach(function (el) {
+        cleanElementTextNodes(el, true);
+        var firstSpan = el.firstElementChild;
+        if (firstSpan && firstSpan.tagName === 'SPAN' && !firstSpan.classList.contains('server-lang')) {
+          cleanElementTextNodes(firstSpan, true);
+          firstSpan.style.display = 'inline-flex';
+          firstSpan.style.alignItems = 'center';
+          firstSpan.style.gap = '7px';
+          if (!firstSpan.querySelector('.ctv-ic')) {
+            firstSpan.insertAdjacentHTML('afterbegin', ctvIcon('play', 14));
+          }
+        } else if (!el.querySelector('.ctv-ic')) {
+          el.insertAdjacentHTML('afterbegin', ctvIcon('play', 14));
+        }
+        el.dataset.ctvClean = '1';
+      });
+
+      root.querySelectorAll('.empty > div:first-child:not([data-ctv-clean])').forEach(function (el) {
+        if (el.classList.contains('spinner')) return;
+        if (el.children && el.children.length > 0 && !el.querySelector('.ctv-ic')) return;
+        el.innerHTML = ctvIcon('film', 32);
+        el.style.cssText = 'color:var(--ctv-muted);margin-bottom:6px';
+        el.dataset.ctvClean = '1';
+      });
+
+      root.querySelectorAll('#filter-bar .pill:not([data-ctv-clean]), .fav-row-title:not([data-ctv-clean]), .air-badge:not([data-ctv-clean])').forEach(function (el) {
+        var hasEl = Boolean(el.firstElementChild);
+        cleanElementTextNodes(el, !hasEl);
+        var dot = el.classList.contains('air-badge') ? el.querySelector('.air-dot') : null;
+        if (dot) {
+          dot.textContent = '';
+          dot.style.cssText = 'width:7px;height:7px;border-radius:50%;background:var(--ctv-accent);display:inline-block;flex-shrink:0';
+        }
+        el.dataset.ctvClean = '1';
+      });
+
+      root.querySelectorAll('.ctv-hero-btn:not([data-ctv-clean])').forEach(function (el) {
+        el.innerHTML = ctvIcon('play', 16) + '<span>Ver ahora</span>';
+        el.dataset.ctvClean = '1';
+      });
+
+      root.querySelectorAll('.ctv-hero-kicker').forEach(function (el) {
+        var txtVal = el.textContent || '';
+        if (EMOJI_STRIP_RE.test(txtVal)) {
+          el.textContent = txtVal.replace(EMOJI_STRIP_RE, '').trim();
+        }
+      });
+    } catch (e) {}
+  }
+  window.ctvSanitizeContainerEmojis = ctvSanitizeContainerEmojis;
+
+  ctvUpgradeStaticChromeIcons();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', ctvUpgradeStaticChromeIcons, { once: true });
+  }
 
   // Helper seguro para ocultar y remover del DOM el splash inicial Zero-Blank-Screen
   function ctvDismissSplash() {
@@ -62,48 +241,92 @@
       document.head.appendChild(styleEl);
     }
     styleEl.textContent = [
-      ':root{--safe-top:env(safe-area-inset-top,0px);--safe-bottom:env(safe-area-inset-bottom,0px);--safe-left:env(safe-area-inset-left,0px);--safe-right:env(safe-area-inset-right,0px);--page-px:clamp(14px,2.6vw,36px);--detail-px:clamp(16px,2.8vw,34px)}',
+      ':root{--ctv-bg:#0B0D12;--ctv-surface:#141821;--ctv-surface-2:#1B202C;--ctv-border:rgba(255,255,255,0.08);--ctv-border-strong:rgba(255,255,255,0.15);--ctv-text:#F3F4F6;--ctv-muted:#9CA3AF;--ctv-accent:#3B82F6;--ctv-accent-soft:rgba(59,130,246,0.16);--bg-main:#0B0D12;--bg-panel:#141821;--bg-card:#141821;--bg-card-hover:#1B202C;--sidebar:rgba(11,13,18,0.95);--line:rgba(255,255,255,0.08);--text:#F3F4F6;--muted:#9CA3AF;--red:#3B82F6;--red-glow:rgba(59,130,246,0.28);--grad:#3B82F6;--cyan:#3B82F6;--violet:#3B82F6;--pink:#3B82F6;--safe-top:env(safe-area-inset-top,0px);--safe-bottom:env(safe-area-inset-bottom,0px);--safe-left:env(safe-area-inset-left,0px);--safe-right:env(safe-area-inset-right,0px);--page-px:clamp(14px,2.6vw,36px);--detail-px:clamp(16px,2.8vw,34px)}',
+      'html,body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif!important;background:var(--ctv-bg)!important;color:var(--ctv-text)!important}',
       'html,body,.app,.detail-full,.player{width:100%!important;max-width:100vw!important;height:100vh!important;height:100dvh!important;overflow:hidden!important}',
       '.player,.detail-full{position:fixed!important;top:0!important;right:0!important;bottom:0!important;left:0!important;background:#000!important}',
+      '.detail-full{background:var(--ctv-bg)!important}',
       '.player-frame,#player-video,#player-frame{width:100%!important;height:100%!important;max-width:100vw!important;max-height:100vh!important;max-height:100dvh!important;border:0!important;background:#000!important;display:block}',
       '.player-frame.hidden,#player-video.hidden,#player-frame.hidden{display:none!important}',
       '#player-video,#player-frame{object-fit:contain!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}',
-      '.sidebar{gap:clamp(8px,1.2vw,16px)!important;padding:max(10px,calc(var(--safe-top) + 6px)) max(var(--page-px),calc(var(--safe-right) + 14px)) 10px max(var(--page-px),calc(var(--safe-left) + 14px))!important;flex-shrink:0}',
+      '.ctv-ic{display:inline-block;vertical-align:middle;flex-shrink:0;pointer-events:none}',
+      '.btn,.pill{display:inline-flex!important;align-items:center!important;justify-content:center;gap:7px;font-family:inherit;border-radius:10px;background:var(--ctv-surface-2);border:1px solid var(--ctv-border);color:var(--ctv-text);box-shadow:none!important}',
+      '.btn:hover,.pill:hover{border-color:var(--ctv-border-strong)!important;background-color:#222838}',
+      '.pill.active,.menu .menu-item.active{background:var(--ctv-accent-soft)!important;border-color:rgba(59,130,246,0.45)!important;color:#fff!important;box-shadow:none!important}',
+      '.menu .menu-item.active .menu-icon{color:var(--ctv-accent)!important}',
+      '.ctv-btn-primary{background:var(--ctv-accent)!important;border-color:var(--ctv-accent)!important;color:#fff!important}',
+      '.ctv-btn-primary:hover{background:#2563EB!important;border-color:#2563EB!important}',
+      '.sidebar{gap:clamp(8px,1.2vw,16px)!important;padding:max(10px,calc(var(--safe-top) + 6px)) max(var(--page-px),calc(var(--safe-right) + 14px)) 10px max(var(--page-px),calc(var(--safe-left) + 14px))!important;flex-shrink:0;background:rgba(11,13,18,0.94)!important;border-bottom:1px solid var(--ctv-border)!important}',
       '.menu{gap:clamp(3px,0.55vw,8px)!important;padding:6px 4px!important;margin:-6px 0!important;scrollbar-width:none}',
       '.menu::-webkit-scrollbar{display:none}',
       '.menu .menu-item,.menu .menu-item:focus,.menu .menu-item:focus-visible,.menu .menu-item.active:focus,.menu .menu-item.active:focus-visible{padding:clamp(6px,0.6vw,8px) clamp(9px,1.15vw,16px)!important;font-size:clamp(.78rem,.95vw,.96rem)!important;min-height:36px}',
       '.sidebar .search{width:clamp(130px,15vw,230px);padding:7px 13px;transition:width .2s ease}',
-      '.sidebar .search:focus-within{width:clamp(155px,19vw,260px)}',
+      '.sidebar .search:focus-within{width:clamp(155px,19vw,260px);box-shadow:0 0 0 2px var(--ctv-accent)!important;background:var(--ctv-surface-2)!important}',
       '.filter-bar{padding:8px max(var(--page-px),calc(var(--safe-right) + 14px)) 12px max(var(--page-px),calc(var(--safe-left) + 14px))!important;flex-shrink:0}',
       '.content{padding:10px max(var(--page-px),calc(var(--safe-right) + 14px)) max(44px,calc(var(--safe-bottom) + 24px)) max(var(--page-px),calc(var(--safe-left) + 14px))!important;overflow-x:hidden!important}',
       '.carousel{gap:clamp(12px,1.5vw,20px)!important;padding:14px 6px 22px!important;margin:0!important}',
       '.carousel .card{flex:0 0 clamp(142px,13.5vw,215px);width:clamp(142px,13.5vw,215px)}',
       '.grid{grid-template-columns:repeat(auto-fill,minmax(clamp(136px,13vw,182px),1fr))!important;gap:clamp(12px,1.6vw,22px)!important;padding:12px 6px 28px!important;margin:0!important}',
+      '.card{background:var(--ctv-surface)!important;border:1px solid var(--ctv-border)!important;box-shadow:0 8px 20px rgba(0,0,0,0.35)!important}',
+      '.movie-rating{display:inline-flex;align-items:center;gap:3px}',
+      '.fav-star{display:inline-grid;place-items:center;color:#FBBF24;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.8))}',
+      '.badge-top{background:var(--ctv-accent)!important}',
       '.modal,.filter-modal{padding:max(14px,calc(var(--safe-top) + 10px)) max(14px,calc(var(--safe-right) + 10px)) max(14px,calc(var(--safe-bottom) + 10px)) max(14px,calc(var(--safe-left) + 10px))!important}',
-      '.dialog,.filter-dialog{width:min(680px,100%)!important;max-height:calc(100vh - 28px)!important;max-height:calc(100dvh - var(--safe-top) - var(--safe-bottom) - 28px)!important;overflow-y:auto!important;padding:clamp(16px,2.5vw,26px)!important}',
+      '.dialog,.filter-dialog{width:min(680px,100%)!important;max-height:calc(100vh - 28px)!important;max-height:calc(100dvh - var(--safe-top) - var(--safe-bottom) - 28px)!important;overflow-y:auto!important;padding:clamp(16px,2.5vw,26px)!important;background:var(--ctv-surface)!important;border:1px solid var(--ctv-border-strong)!important;border-radius:16px!important;box-shadow:0 18px 48px rgba(0,0,0,0.65)!important}',
       '.filter-dialog{width:min(820px,100%)!important}',
+      '.filter-head{background:var(--ctv-surface)!important}',
+      '.update-dialog{border-color:var(--ctv-border-strong)!important;box-shadow:0 18px 48px rgba(0,0,0,0.65)!important}',
+      '.update-tag{background:var(--ctv-accent-soft)!important;border-color:rgba(59,130,246,0.45)!important;color:#93C5FD!important}',
+      '.update-logo{border-color:var(--ctv-accent)!important}',
+      '.update-progress-row{color:var(--ctv-accent)!important}',
+      '#update-progress-bar{background:var(--ctv-accent)!important}',
+      '.update-dialog .btn-danger{background:var(--ctv-accent)!important;border-color:var(--ctv-accent)!important;color:#fff!important}',
       '.detail-topbar{padding:max(10px,calc(var(--safe-top) + 8px)) max(var(--detail-px),calc(var(--safe-right) + 14px)) 10px max(var(--detail-px),calc(var(--safe-left) + 14px))!important}',
       '.detail{padding-bottom:max(40px,calc(var(--safe-bottom) + 28px))!important}',
       '.detail-body{gap:clamp(16px,2.4vw,28px)!important;padding:clamp(16px,2.4vw,26px) max(var(--detail-px),calc(var(--safe-right) + 14px)) 16px max(var(--detail-px),calc(var(--safe-left) + 14px))!important}',
       '.detail-servers-head,.season-strip{padding-left:max(var(--detail-px),calc(var(--safe-left) + 14px))!important;padding-right:max(var(--detail-px),calc(var(--safe-right) + 14px))!important}',
       '.episode-grid{grid-template-columns:repeat(auto-fill,minmax(min(210px,100%),1fr))!important;padding:4px max(var(--detail-px),calc(var(--safe-right) + 14px)) 8px max(var(--detail-px),calc(var(--safe-left) + 14px))!important}',
       '.detail .server-list{padding:10px max(var(--detail-px),calc(var(--safe-right) + 14px)) max(32px,calc(var(--safe-bottom) + 24px)) max(var(--detail-px),calc(var(--safe-left) + 14px))!important}',
-      '.player-bar{top:max(12px,calc(var(--safe-top) + 8px))!important;left:max(12px,calc(var(--safe-left) + 12px))!important;right:max(12px,calc(var(--safe-right) + 12px))!important;gap:clamp(6px,1.2vw,14px)!important;padding:clamp(7px,1vw,10px) clamp(10px,1.5vw,16px)!important;flex-wrap:nowrap!important;z-index:20!important}',
-      '.player-bar .btn{flex-shrink:0;padding:clamp(6px,0.9vw,9px) clamp(10px,1.4vw,16px)!important;font-size:clamp(.76rem,.9vw,.9rem)!important}',
-      '.player-bar #player-title{min-width:40px;font-size:clamp(.82rem,1.05vw,1rem)}',
-      '.focusable:focus,.focusable:focus-visible,.server-list button:focus,.episode-btn:focus,.player-bar .btn:focus,.agenda-card:focus,.agenda-embeds .pill:focus{outline:2px solid #fff!important;box-shadow:0 0 0 4px rgba(162,77,240,.85),0 8px 24px rgba(0,0,0,.7)!important}',
+      '#ctv-player-wake-zone{position:absolute;top:0;left:0;right:0;height:max(56px,calc(var(--safe-top,0px) + 46px));z-index:28;background:transparent;pointer-events:auto}',
+      '#player-bar,.player-bar{top:max(12px,calc(var(--safe-top) + 8px))!important;left:max(12px,calc(var(--safe-left) + 12px))!important;right:max(12px,calc(var(--safe-right) + 12px))!important;gap:clamp(6px,1.2vw,14px)!important;padding:clamp(7px,1vw,10px) clamp(10px,1.5vw,16px)!important;flex-wrap:nowrap!important;z-index:30!important;pointer-events:auto!important;background:rgba(11,13,18,0.86)!important;border:1px solid var(--ctv-border)!important;border-radius:14px!important;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}',
+      '#player-bar.hidden,.player-bar.hidden{pointer-events:none!important}',
+      '#player-bar .btn,.player-bar .btn{flex-shrink:0;border-radius:999px!important;min-height:44px;padding:8px 14px!important;font-size:clamp(.76rem,.9vw,.9rem)!important}',
+      '#player-title,.player-bar #player-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:var(--ctv-text);font-size:clamp(.82rem,1.05vw,1rem)}',
+      '#player-fav{color:var(--ctv-text);font-size:inherit;min-width:0}',
+      '#player-fav.is-fav,#detail-fav.is-fav{color:var(--ctv-accent)!important;background:var(--ctv-accent-soft)!important;border-color:rgba(59,130,246,0.45)!important;box-shadow:none!important}',
+      '.modal .btn,.dialog .btn{min-height:44px}',
+      '.ctv-opt-row{min-height:46px;display:flex!important;align-items:center!important;justify-content:space-between!important;gap:12px;width:100%;padding:10px 14px!important;text-align:left;background:var(--ctv-surface-2)!important;border:1px solid var(--ctv-border)!important;border-radius:12px!important;color:var(--ctv-text)!important;cursor:pointer}',
+      '.ctv-opt-main{display:flex;flex-direction:column;gap:2px;min-width:0}',
+      '.ctv-opt-title{font-weight:600;font-size:.94rem;color:var(--ctv-text)}',
+      '.ctv-opt-sub{font-size:.78rem;color:var(--ctv-muted);font-weight:400}',
+      '.ctv-opt-row.active{background:var(--ctv-accent-soft)!important;border-color:rgba(59,130,246,0.45)!important}',
+      '.focusable:focus,.focusable:focus-visible,.server-list button:focus,.episode-btn:focus,.player-bar .btn:focus,.agenda-card:focus,.agenda-embeds .pill:focus{outline:2px solid var(--ctv-accent)!important;outline-offset:2px!important;background-color:var(--ctv-surface-2)!important;color:var(--ctv-text)!important;border-color:var(--ctv-accent)!important;box-shadow:0 0 0 4px rgba(59,130,246,0.25)!important}',
+      '.menu .menu-item:focus,.menu .menu-item:focus-visible,.menu .menu-item.active:focus,.menu .menu-item.active:focus-visible{outline:2px solid var(--ctv-accent)!important;outline-offset:2px!important;background:var(--ctv-surface-2)!important;color:#fff!important;border:1px solid var(--ctv-accent)!important;box-shadow:0 0 0 4px rgba(59,130,246,0.25)!important}',
+      '.ctv-btn-primary:focus,.ctv-btn-primary:focus-visible{background:#2563EB!important;color:#fff!important}',
       '.agenda-embeds{gap:10px!important;padding-top:6px!important}',
       '.agenda-embeds .pill{min-height:40px;padding:8px 16px!important;font-size:.9rem!important;font-weight:700!important}',
-      '#ctv-agenda-status{position:absolute;inset:0;z-index:15;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;background:radial-gradient(circle at center,#181926 0%,#08090e 100%);color:#fff}',
+      '#ctv-agenda-status{position:absolute;inset:0;z-index:15;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;background:radial-gradient(circle at center,#141821 0%,#0B0D12 100%);color:var(--ctv-text)}',
       '#ctv-agenda-status .ctv-as-actions{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-top:6px}',
-      '#ctv-player-loader{position:absolute;inset:0;z-index:14;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(5,6,10,.88);color:#fff;pointer-events:none;transition:opacity .2s ease;will-change:opacity}',
-      '#ctv-player-loader .ctv-spin{width:42px;height:42px;border-radius:50%;border:3px solid rgba(255,255,255,.15);border-top-color:#b04cf2;animation:ctvSpin .8s linear infinite;will-change:transform}',
+      '#ctv-agenda-status .btn,#ctv-resume-prompt .btn,#ctv-failover-pill .btn{min-height:44px;padding:8px 14px!important}',
+      '#ctv-failover-pill{position:absolute;top:max(70px,calc(var(--safe-top,0px) + 64px));left:50%;transform:translateX(-50%);z-index:29;display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;max-width:min(560px,calc(100vw - 24px));padding:8px 14px;border-radius:999px;background:rgba(20,24,33,0.94);border:1px solid var(--ctv-border-strong);box-shadow:0 10px 28px rgba(0,0,0,0.6);color:var(--ctv-text);font-size:.86rem;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}',
+      '#ctv-failover-pill .ctv-fp-txt{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px}',
+      '#ctv-failover-pill .btn{border-radius:999px!important;font-size:.82rem!important}',
+      '#ctv-player-loader{position:absolute;inset:0;z-index:14;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(11,13,18,0.9);color:var(--ctv-text);pointer-events:none;transition:opacity .2s ease;will-change:opacity}',
+      '#ctv-player-loader .ctv-spin{width:38px;height:38px;border-radius:50%;border:3px solid rgba(255,255,255,0.14);border-top-color:var(--ctv-accent);animation:ctvSpin .8s linear infinite;will-change:transform}',
       '@keyframes ctvSpin{to{transform:rotate(360deg)}}',
-      '#ctv-update-banner{position:fixed;right:max(16px,var(--safe-right));bottom:max(20px,calc(var(--safe-bottom) + 16px));z-index:100020;display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:14px;background:rgba(20,21,32,.96);border:1px solid rgba(176,76,242,.55);box-shadow:0 12px 34px rgba(0,0,0,.78);color:#fff;font-size:.88rem;max-width:min(420px,calc(100vw - 28px));transition:transform .22s ease,opacity .22s ease;will-change:transform,opacity}',
+      '#ctv-resume-prompt{position:absolute;left:max(20px,var(--safe-left,0px));bottom:max(78px,calc(var(--safe-bottom,0px) + 64px));z-index:22;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;border-radius:12px;background:var(--ctv-surface);border:1px solid var(--ctv-border-strong);box-shadow:0 12px 28px rgba(0,0,0,0.6);color:var(--ctv-text);font-size:.88rem;transition:opacity .2s ease,transform .2s ease}',
+      '.ctv-card-prog{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.18);z-index:4;pointer-events:none}.ctv-card-prog>i{display:block;height:100%;background:var(--ctv-accent);border-radius:0 2px 2px 0}',
+      '#ctv-update-banner{position:fixed;top:max(12px,var(--safe-top,0px));left:50%;transform:translateX(-50%);bottom:auto;right:auto;z-index:100020;display:flex;align-items:center;gap:12px;padding:8px 14px;border-radius:999px;background:var(--ctv-surface);border:1px solid var(--ctv-border-strong);box-shadow:0 10px 28px rgba(0,0,0,0.55);color:var(--ctv-text);font-size:.88rem;max-width:min(520px,calc(100vw - 24px));transition:transform .22s ease,opacity .22s ease;will-change:transform,opacity}',
       '.card,.pill,.btn,.agenda-card,.episode-btn{transition:transform .16s ease,opacity .16s ease}',
-      '.ctv-hero{--h:clamp(220px,40vh,390px);padding:clamp(18px,2.5vw,28px) clamp(20px,3vw,36px);margin:4px 0 20px}',
+      '.ctv-hero{--h:clamp(220px,40vh,390px);padding:clamp(18px,2.5vw,28px) clamp(20px,3vw,36px);margin:4px 0 20px;background:var(--ctv-surface)!important;border:1px solid var(--ctv-border);box-shadow:0 18px 42px rgba(0,0,0,0.45)!important}',
       '.ctv-hero-info{min-height:0;gap:clamp(6px,1.1vh,12px);padding-bottom:10px}',
+      '.ctv-hero-kicker{color:var(--ctv-accent)!important;background:none!important;-webkit-background-clip:initial!important;background-clip:initial!important}',
       '.ctv-hero-title{font-size:clamp(1.35rem,3.2vw,2.8rem)}',
+      '.ctv-hero-btn{background:#F3F4F6!important;color:#0B0D12!important;border:1px solid transparent!important;border-radius:999px!important;box-shadow:none!important}',
+      '.ctv-hero-btn:hover,.ctv-hero-btn:focus,.ctv-hero-btn:focus-visible{background:var(--ctv-accent)!important;color:#fff!important;border-color:var(--ctv-accent)!important;outline:2px solid #fff!important;outline-offset:2px!important;box-shadow:0 0 0 4px rgba(59,130,246,0.28)!important}',
+      '.ctv-hero-dots i.on{background:var(--ctv-accent)!important}',
+      '@media (max-width:720px){#player-imgmode .ctv-btn-lbl,#player-subs .ctv-btn-lbl,#player-fav .ctv-btn-lbl,#player-next-srv .ctv-btn-lbl{display:none!important}#player-bar .btn,.player-bar .btn{min-height:44px!important;padding:8px 11px!important}#player-imgmode,#player-subs,#player-fav,#player-next-srv{min-width:44px!important;min-height:44px!important;padding:8px!important}}',
+      '@media (max-width:480px){#player-bar,.player-bar{left:max(6px,var(--safe-left))!important;right:max(6px,var(--safe-right))!important;gap:4px!important;padding:6px 8px!important}#player-quality .ctv-btn-lbl{display:none!important}#player-quality{min-width:44px!important;min-height:44px!important;padding:8px!important}}',
       '@media (orientation:landscape) and (max-height:540px){',
       '  .sidebar{padding:max(6px,calc(var(--safe-top) + 4px)) max(16px,calc(var(--safe-right) + 12px)) 6px max(16px,calc(var(--safe-left) + 12px))!important;gap:8px!important}',
       '  .brand-logo{width:30px!important;height:30px!important}.brand-sub{display:none!important}',
@@ -116,10 +339,10 @@
       '@media (max-width:860px), (orientation:portrait) and (max-width:1024px){',
       '  .sidebar{padding:max(10px,calc(var(--safe-top) + 6px)) max(14px,calc(var(--safe-right) + 12px)) 10px max(14px,calc(var(--safe-left) + 12px))!important}',
       '  .brand-sub{display:none!important}.sidebar .search,.sidebar .search:focus-within{flex:1 1 auto!important;width:auto!important;min-width:0!important}',
-      '  .menu{position:fixed!important;left:0!important;right:0!important;bottom:0!important;z-index:60!important;display:grid!important;grid-template-columns:repeat(7,minmax(0,1fr))!important;align-items:center!important;gap:2px!important;padding:6px max(6px,var(--safe-left)) max(10px,calc(var(--safe-bottom) + 6px)) max(6px,var(--safe-right))!important;margin:0!important;background:rgba(10,11,16,.95)!important;border-top:1px solid rgba(255,255,255,.08)!important;overflow:hidden!important}',
+      '  .menu{position:fixed!important;left:0!important;right:0!important;bottom:0!important;z-index:60!important;display:grid!important;grid-template-columns:repeat(7,minmax(0,1fr))!important;align-items:center!important;gap:2px!important;padding:6px max(6px,var(--safe-left)) max(10px,calc(var(--safe-bottom) + 6px)) max(6px,var(--safe-right))!important;margin:0!important;background:rgba(11,13,18,.95)!important;border-top:1px solid var(--ctv-border)!important;overflow:hidden!important}',
       '  .menu .menu-item:first-child,.menu .menu-item:last-child{margin:0!important}',
-      '  .menu .menu-item,.menu .menu-item:focus,.menu .menu-item:focus-visible,.menu .menu-item.active:focus,.menu .menu-item.active:focus-visible{width:100%!important;min-width:0!important;min-height:0!important;flex-direction:column!important;justify-content:center!important;gap:3px!important;padding:5px 2px!important;font-size:clamp(.56rem,2vw,.72rem)!important;background:transparent!important;box-shadow:none!important;transform:none!important}',
-      '  .menu .menu-item.active,.menu .menu-item.active:focus,.menu .menu-item.active:focus-visible{color:#fff!important;background:rgba(255,255,255,.08)!important}',
+      '  .menu .menu-item,.menu .menu-item:focus,.menu .menu-item:focus-visible,.menu .menu-item.active:focus,.menu .menu-item.active:focus-visible{width:100%!important;min-width:0!important;min-height:0!important;flex-direction:column!important;justify-content:center!important;gap:3px!important;padding:5px 2px!important;font-size:clamp(.56rem,2vw,.72rem)!important;background:transparent!important;box-shadow:none!important;transform:none!important;border-color:transparent!important}',
+      '  .menu .menu-item.active,.menu .menu-item.active:focus,.menu .menu-item.active:focus-visible{color:#fff!important;background:var(--ctv-accent-soft)!important}',
       '  .menu .menu-icon{display:grid!important;width:22px!important;height:22px!important}.menu .menu-icon svg{width:20px!important;height:20px!important}',
       '  .menu .menu-label{width:100%!important;white-space:nowrap!important;text-align:center!important;overflow:hidden!important;text-overflow:ellipsis!important}',
       '  .content{padding:6px max(14px,calc(var(--safe-right) + 12px)) calc(92px + var(--safe-bottom)) max(14px,calc(var(--safe-left) + 12px))!important}',
@@ -132,7 +355,7 @@
       '  .detail-poster{width:clamp(130px,40vw,200px)!important;align-self:center!important}',
       '  .detail-title{font-size:clamp(1.3rem,5vw,1.65rem)!important;text-align:center}',
       '  .detail-meta,.detail-genre,.detail-actions{justify-content:center}',
-      '  #ctv-update-banner{bottom:calc(78px + var(--safe-bottom));left:14px;right:14px;max-width:none}',
+      '  #ctv-update-banner{top:max(10px,calc(var(--safe-top) + 6px));bottom:auto;right:auto;left:50%;transform:translateX(-50%);max-width:calc(100vw - 20px)}',
       '}',
       '@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}'
     ].join('\n');
@@ -242,6 +465,7 @@
       if (s.indexOf('http://') === 0 || s.indexOf('https://') === 0) return s;
       return 'https://image.tmdb.org/t/p/w500' + (s.charAt(0) === '/' ? s : '/' + s);
     }
+    window.ctvNormPosterUrl = ctvNormPosterUrl;
 
     function ctvShowToast(msg) {
       try {
@@ -251,7 +475,7 @@
         if (!t) {
           t = document.createElement('div');
           t.id = 'ctv-fav-toast';
-          t.style.cssText = 'position:fixed;left:50%;bottom:max(88px,calc(env(safe-area-inset-bottom,0px) + 74px));transform:translate3d(-50%,0,0);background:rgba(18,19,28,.96);color:#fff;border:1px solid rgba(176,76,242,.55);box-shadow:0 10px 30px rgba(0,0,0,.75);padding:10px 20px;border-radius:999px;font-weight:700;font-size:.9rem;z-index:100025;pointer-events:none;white-space:nowrap;max-width:calc(100vw - 28px);overflow:hidden;text-overflow:ellipsis;transition:opacity .22s ease,transform .22s ease;will-change:opacity,transform';
+          t.style.cssText = 'position:fixed;left:50%;bottom:max(88px,calc(env(safe-area-inset-bottom,0px) + 74px));transform:translate3d(-50%,0,0);background:rgba(20,24,33,0.96);color:#F3F4F6;border:1px solid rgba(255,255,255,0.15);box-shadow:0 10px 28px rgba(0,0,0,0.65);padding:10px 20px;border-radius:999px;font-weight:700;font-size:.9rem;z-index:100025;pointer-events:none;white-space:nowrap;max-width:calc(100vw - 28px);overflow:hidden;text-overflow:ellipsis;transition:opacity .22s ease,transform .22s ease;will-change:opacity,transform';
           document.body.appendChild(t);
         }
         t.textContent = msg;
@@ -299,6 +523,140 @@
     window.ctvGetUserPrefs = ctvGetUserPrefs;
     window.ctvSaveUserPrefs = ctvSaveUserPrefs;
 
+    // Persistencia local + LRU (<= 60) para Continuar viendo (ctv_watch_progress_v1)
+    var CTV_WATCH_PROGRESS_KEY = 'ctv_watch_progress_v1';
+    var CTV_WATCH_MAX_ITEMS = 60;
+    var _watchProgCache = null;
+    function ctvInvalidateWatchProgressCache() { _watchProgCache = null; }
+    window.ctvInvalidateWatchProgressCache = ctvInvalidateWatchProgressCache;
+
+    function ctvFormatWatchTime(sec) {
+      var sTot = Math.max(0, Math.floor(Number(sec) || 0));
+      var h = Math.floor(sTot / 3600);
+      var m = Math.floor((sTot % 3600) / 60);
+      var s = sTot % 60;
+      var mm = (m < 10 ? '0' : '') + m;
+      var ss = (s < 10 ? '0' : '') + s;
+      return h > 0 ? (h + ':' + mm + ':' + ss) : (mm + ':' + ss);
+    }
+    window.ctvFormatWatchTime = ctvFormatWatchTime;
+
+    function pruneWatchProgressMap(rawMap) {
+      if (!rawMap || typeof rawMap !== 'object' || Array.isArray(rawMap)) return {};
+      var entries = [];
+      Object.keys(rawMap).forEach(function (rawKey) {
+        var key = typeof rawKey === 'string' ? rawKey.trim() : '';
+        if (!key || key.length > 180 || key === '__proto__' || key === 'constructor' || key === 'prototype') return;
+        var val = rawMap[rawKey];
+        if (!val || typeof val !== 'object' || Array.isArray(val)) return;
+        if (typeof val.t !== 'number' || !isFinite(val.t) || val.t < 5) return;
+        if (val.d != null && (typeof val.d !== 'number' || !isFinite(val.d) || val.d <= 0)) return;
+        if (typeof val.updatedAt !== 'number' || !isFinite(val.updatedAt) || val.updatedAt <= 0) return;
+        var clean = {
+          t: val.t,
+          title: typeof val.title === 'string' ? val.title.slice(0, 160) : '',
+          poster: typeof val.poster === 'string' ? val.poster.slice(0, 320) : '',
+          type: val.type === 'serie' || key.indexOf('serie:') === 0 ? 'serie' : 'movie',
+          slug: typeof val.slug === 'string' ? val.slug.slice(0, 140) : '',
+          ep: typeof val.ep === 'string' ? val.ep.slice(0, 24) : '',
+          updatedAt: val.updatedAt
+        };
+        if (typeof val.d === 'number' && isFinite(val.d) && val.d > 0) clean.d = val.d;
+        entries.push([key, clean]);
+      });
+      entries.sort(function (a, b) { return b[1].updatedAt - a[1].updatedAt; });
+      var out = {};
+      for (var i = 0; i < entries.length && i < CTV_WATCH_MAX_ITEMS; i++) {
+        out[entries[i][0]] = entries[i][1];
+      }
+      return out;
+    }
+
+    function ctvGetWatchProgressMap() {
+      if (_watchProgCache) return _watchProgCache;
+      try {
+        var raw = JSON.parse(localStorage.getItem(CTV_WATCH_PROGRESS_KEY) || '{}');
+        _watchProgCache = pruneWatchProgressMap(raw);
+      } catch (e) {
+        _watchProgCache = {};
+      }
+      return _watchProgCache;
+    }
+    window.ctvGetWatchProgressMap = ctvGetWatchProgressMap;
+
+    function persistWatchProgressMap(pruned) {
+      _watchProgCache = pruned;
+      try {
+        localStorage.setItem(CTV_WATCH_PROGRESS_KEY, JSON.stringify(pruned));
+      } catch (e) {}
+      if (window.__ctvSupportsWatchProgressState === true && typeof window.ctvPersistDesktopState === 'function') {
+        window.ctvPersistDesktopState({ watchProgress: pruned });
+      }
+    }
+
+    function ctvSaveWatchProgressEntry(mediaKey, entry) {
+      var key = typeof mediaKey === 'string' ? mediaKey.trim() : '';
+      if (!key || key.length > 180 || key === '__proto__' || key === 'constructor' || key === 'prototype') return null;
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+      var tVal = Number(entry.t);
+      var dVal = entry.d != null ? Number(entry.d) : undefined;
+      if (!isFinite(tVal) || tVal < 5) return null;
+      if (dVal !== undefined && (!isFinite(dVal) || dVal <= 0)) return null;
+      var map = Object.assign({}, ctvGetWatchProgressMap());
+      var nextEntry = {
+        t: tVal,
+        title: typeof entry.title === 'string' ? entry.title.slice(0, 160) : '',
+        poster: typeof entry.poster === 'string' ? entry.poster.slice(0, 320) : '',
+        type: entry.type === 'serie' || key.indexOf('serie:') === 0 ? 'serie' : 'movie',
+        slug: typeof entry.slug === 'string' ? entry.slug.slice(0, 140) : '',
+        ep: typeof entry.ep === 'string' ? entry.ep.slice(0, 24) : '',
+        updatedAt: (typeof entry.updatedAt === 'number' && isFinite(entry.updatedAt) && entry.updatedAt > 0) ? entry.updatedAt : Date.now()
+      };
+      if (dVal !== undefined) nextEntry.d = dVal;
+      map[key] = nextEntry;
+      var pruned = pruneWatchProgressMap(map);
+      persistWatchProgressMap(pruned);
+      return pruned[key] || null;
+    }
+    window.ctvSaveWatchProgressEntry = ctvSaveWatchProgressEntry;
+
+    function ctvRemoveWatchProgressEntry(mediaKey) {
+      var key = typeof mediaKey === 'string' ? mediaKey.trim() : '';
+      if (!key || key === '__proto__' || key === 'constructor' || key === 'prototype') return false;
+      var map = Object.assign({}, ctvGetWatchProgressMap());
+      if (!Object.prototype.hasOwnProperty.call(map, key)) return false;
+      delete map[key];
+      var pruned = pruneWatchProgressMap(map);
+      persistWatchProgressMap(pruned);
+      return true;
+    }
+    window.ctvRemoveWatchProgressEntry = ctvRemoveWatchProgressEntry;
+
+    function ctvGetWatchProgressForSlug(slug) {
+      if (!slug) return null;
+      var s = String(slug).trim();
+      if (!s) return null;
+      var map = ctvGetWatchProgressMap();
+      var movieEntry = map['movie:' + s];
+      var prefix = 'serie:' + s + ':';
+      var bestSerie = null;
+      var keys = Object.keys(map);
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        if (k.indexOf(prefix) === 0) {
+          var cand = map[k];
+          if (cand && (!bestSerie || (cand.updatedAt || 0) > (bestSerie.updatedAt || 0))) {
+            bestSerie = cand;
+          }
+        }
+      }
+      if (movieEntry && bestSerie) {
+        return (movieEntry.updatedAt || 0) >= (bestSerie.updatedAt || 0) ? movieEntry : bestSerie;
+      }
+      return movieEntry || bestSerie || null;
+    }
+    window.ctvGetWatchProgressForSlug = ctvGetWatchProgressForSlug;
+
     // Caché en memoria de sets de favoritos para evitar JSON.parse repetitivo durante scroll/DOM updates
     var _favSetsCache = null;
     function ctvInvalidateFavCache() { _favSetsCache = null; }
@@ -338,17 +696,23 @@
         var isFav = cur ? ctvIsItemFavorite(cur) : false;
         var pFav = document.getElementById('player-fav');
         if (pFav) {
-          var pText = isFav ? '★' : '☆';
-          if (pFav.textContent !== pText) pFav.textContent = pText;
-          var pColor = isFav ? 'rgb(255, 215, 0)' : '';
-          if (isFav && pFav.style.color !== '#ffd700' && pFav.style.color !== pColor) pFav.style.color = '#ffd700';
-          else if (!isFav && pFav.style.color) pFav.style.color = '';
+          var pState = isFav ? '1' : '0';
+          if (!pFav.querySelector('.ctv-ic') || pFav.getAttribute('data-ctv-fav') !== pState) {
+            pFav.setAttribute('data-ctv-fav', pState);
+            pFav.innerHTML = ctvIcon(isFav ? 'star-filled' : 'star', 16) + '<span class="ctv-btn-lbl">' + (isFav ? 'Guardado' : 'Favorito') + '</span>';
+          }
+          pFav.style.color = isFav ? 'var(--ctv-accent)' : '';
+          pFav.setAttribute('aria-label', isFav ? 'Quitar de favoritos' : 'Guardar en favoritos');
           if (pFav.classList.contains('is-fav') !== isFav) pFav.classList.toggle('is-fav', isFav);
         }
         var dFav = document.getElementById('detail-fav');
         if (dFav && cur && cur.kind !== 'tv') {
-          var dText = isFav ? '★ Favorito' : '☆ Favorito';
-          if (dFav.textContent !== dText) dFav.textContent = dText;
+          var dState = isFav ? '1' : '0';
+          if (!dFav.querySelector('.ctv-ic') || dFav.getAttribute('data-ctv-fav') !== dState) {
+            dFav.setAttribute('data-ctv-fav', dState);
+            dFav.innerHTML = ctvIcon(isFav ? 'star-filled' : 'star', 16) + '<span>' + (isFav ? 'En favoritos' : 'Favorito') + '</span>';
+          }
+          dFav.setAttribute('aria-label', isFav ? 'Quitar de favoritos' : 'Guardar en favoritos');
           if (dFav.classList.contains('is-fav') !== isFav) dFav.classList.toggle('is-fav', isFav);
         }
         var sets = ctvGetFavSets();
@@ -361,9 +725,34 @@
           var starred = sets.movies.has(slug) || sets.series.has(slug) || sets.tv.has(slug);
           var starEl = wrap.querySelector('.fav-star');
           if (starred && !starEl) {
-            wrap.insertAdjacentHTML('afterbegin', '<span class="fav-star">★</span>');
+            wrap.insertAdjacentHTML('afterbegin', '<span class="fav-star" data-ctv-clean="1">' + ctvIcon('star-filled', 13) + '</span>');
+          } else if (starred && starEl && !starEl.hasAttribute('data-ctv-clean')) {
+            starEl.innerHTML = ctvIcon('star-filled', 13);
+            starEl.setAttribute('data-ctv-clean', '1');
           } else if (!starred && starEl) {
             starEl.remove();
+          }
+          if (card.classList && card.classList.contains('movie')) {
+            var prog = ctvGetWatchProgressForSlug(slug);
+            var progEl = wrap.querySelector('.ctv-card-prog');
+            if (prog && prog.t >= 15 && prog.d > 0 && (prog.t / prog.d) < 0.93) {
+              var pct = Math.max(3, Math.min(97, Math.round((prog.t / prog.d) * 100)));
+              if (!progEl) {
+                progEl = document.createElement('span');
+                progEl.className = 'ctv-card-prog';
+                var fillEl = document.createElement('i');
+                fillEl.style.width = pct + '%';
+                progEl.appendChild(fillEl);
+                wrap.appendChild(progEl);
+              } else {
+                var curFill = progEl.firstElementChild;
+                if (curFill && curFill.style.width !== pct + '%') {
+                  curFill.style.width = pct + '%';
+                }
+              }
+            } else if (progEl) {
+              progEl.remove();
+            }
           }
         });
       } catch (e) {}
@@ -466,7 +855,7 @@
         window.ctvPersistDesktopState();
       }
       ctvUpdateFavButtonsUI();
-      ctvShowToast(added ? '★ Guardado en Favoritos' : '☆ Eliminado de Favoritos');
+      ctvShowToast(added ? 'Guardado en favoritos' : 'Eliminado de favoritos');
 
       var activeMenu = document.querySelector('.menu-item.active');
       var detailModal = document.getElementById('detail-modal');
@@ -584,22 +973,26 @@
     };
 
     function ctvBuildPjToken(extra, customSeed, customRule) {
-      var h = extra != null ? String(extra) : '';
-      var sec = window.__ctvPjSec || { rule: 'r1', seed: 'pj_sec_seed_2026_init' };
-      var seed = customSeed != null ? String(customSeed) : String(sec.seed || 'pj_sec_seed_2026_init');
-      var rule = (customRule && String(customRule).length > 0) ? String(customRule) : String(sec.rule || 'r1');
-      var minute = Math.floor(Date.now() / 1000 / 60);
-      var raw = '';
-      if (rule === 'r2') {
-        raw = seed + ':' + minute + ':' + PJ_CERT_SHA256 + ':' + h + ':' + PJ_PACKAGE_NAME;
-      } else if (rule === 'r3') {
-        raw = PJ_PACKAGE_NAME + ':' + h + ':' + minute + ':' + seed + ':' + PJ_CERT_SHA256;
-      } else if (rule === 'r4') {
-        raw = PJ_CERT_SHA256 + '#' + seed + '#' + h + '#' + minute;
-      } else {
-        raw = PJ_CERT_SHA256 + ':' + PJ_PACKAGE_NAME + ':' + h + ':' + seed + ':' + minute;
+      try {
+        var h = extra != null ? String(extra) : '';
+        var sec = window.__ctvPjSec || { rule: 'r1', seed: 'pj_sec_seed_2026_init' };
+        var seed = customSeed != null ? String(customSeed) : String(sec.seed || 'pj_sec_seed_2026_init');
+        var rule = (customRule && String(customRule).length > 0) ? String(customRule) : String(sec.rule || 'r1');
+        var minute = Math.floor(Date.now() / 1000 / 60);
+        var raw = '';
+        if (rule === 'r2') {
+          raw = seed + ':' + minute + ':' + PJ_CERT_SHA256 + ':' + h + ':' + PJ_PACKAGE_NAME;
+        } else if (rule === 'r3') {
+          raw = PJ_PACKAGE_NAME + ':' + h + ':' + minute + ':' + seed + ':' + PJ_CERT_SHA256;
+        } else if (rule === 'r4') {
+          raw = PJ_CERT_SHA256 + '#' + seed + '#' + h + '#' + minute;
+        } else {
+          raw = PJ_CERT_SHA256 + ':' + PJ_PACKAGE_NAME + ':' + h + ':' + seed + ':' + minute;
+        }
+        return ctvSha256Hex(raw) + '.' + minute;
+      } catch (e) {
+        return '';
       }
-      return ctvSha256Hex(raw) + '.' + minute;
     }
     window.ctvBuildPjToken = ctvBuildPjToken;
     try {
@@ -608,10 +1001,46 @@
       }
     } catch (e) {}
 
+    function ctvFetchRawWithTimeout(url, init, ms) {
+      var timeoutMs = (typeof ms === 'number' && ms > 0) ? ms : 4500;
+      var mergedInit = init && typeof init === 'object' ? Object.assign({}, init) : {};
+      var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+      var timer = null;
+      var extSignal = mergedInit.signal;
+      var onExtAbort = null;
+      if (ctrl) {
+        if (extSignal) {
+          if (extSignal.aborted) {
+            try { ctrl.abort(); } catch (e) {}
+          } else if (typeof extSignal.addEventListener === 'function') {
+            onExtAbort = function () { try { ctrl.abort(); } catch (e) {} };
+            extSignal.addEventListener('abort', onExtAbort, { once: true });
+          }
+        }
+        mergedInit.signal = ctrl.signal;
+        timer = setTimeout(function () {
+          try { ctrl.abort(); } catch (e) {}
+        }, timeoutMs);
+      }
+      return Promise.resolve(_nativeFetch(url, mergedInit)).finally(function () {
+        if (timer) clearTimeout(timer);
+        if (extSignal && onExtAbort && typeof extSignal.removeEventListener === 'function') {
+          try { extSignal.removeEventListener('abort', onExtAbort); } catch (e) {}
+        }
+      });
+    }
+
     function updatePjSecFromVersionJson(vJson) {
       if (vJson && typeof vJson === 'object') {
-        if (vJson.sec_rule) window.__ctvPjSec.rule = String(vJson.sec_rule);
-        if (vJson.sec_seed) window.__ctvPjSec.seed = String(vJson.sec_seed);
+        if (!window.__ctvPjSec || typeof window.__ctvPjSec !== 'object') {
+          window.__ctvPjSec = { rule: 'r1', seed: 'pj_sec_seed_2026_init', fetchedAt: 0 };
+        }
+        if (typeof vJson.sec_rule === 'string' && vJson.sec_rule.trim().length > 0 && vJson.sec_rule.length <= 32) {
+          window.__ctvPjSec.rule = vJson.sec_rule.trim();
+        }
+        if (typeof vJson.sec_seed === 'string' && vJson.sec_seed.trim().length > 0 && vJson.sec_seed.length <= 256) {
+          window.__ctvPjSec.seed = vJson.sec_seed;
+        }
         window.__ctvPjSec.fetchedAt = Date.now();
       }
     }
@@ -619,14 +1048,16 @@
     var _pjSecInFlight = null;
     function ensurePjSecConfig(forceRefresh) {
       try {
-        if (!forceRefresh && window.__ctvPjSec && window.__ctvPjSec.fetchedAt) {
-          return Promise.resolve(window.__ctvPjSec);
-        }
         if (_pjSecInFlight) return _pjSecInFlight;
+        var sec = window.__ctvPjSec;
+        if (sec && sec.fetchedAt) {
+          if (!forceRefresh) return Promise.resolve(sec);
+          if ((Date.now() - sec.fetchedAt) < 3000) return Promise.resolve(sec);
+        }
         _pjSecInFlight = (async function () {
-          var vUrl = 'https://pelisjuanita.com/tv/app/version.php?app_version=7';
+          var vUrl = ctvSignPjUrl('https://pelisjuanita.com/tv/app/version.php?app_version=7');
           try {
-            var vResp = await _nativeFetch(vUrl, { cache: 'no-store' });
+            var vResp = await ctvFetchRawWithTimeout(vUrl, { cache: 'no-store' }, 4000);
             if (vResp && vResp.ok) {
               var vJson = await vResp.json().catch(function () { return null; });
               updatePjSecFromVersionJson(vJson);
@@ -652,6 +1083,7 @@
         return Promise.resolve(window.__ctvPjSec);
       }
     }
+    window.__ctvEnsurePjSecConfig = ensurePjSecConfig;
     ensurePjSecConfig(false);
 
     function ctvSignPjUrl(rawUrl) {
@@ -699,7 +1131,7 @@
           try {
             targetUrl = ctvSignPjUrl(targetUrl);
             var pUrl = '/__ctv_proxy?url=' + encodeURIComponent(targetUrl) + '&ref=' + encodeURIComponent('https://pelisjuanita.com/');
-            var pr = await _nativeFetch(pUrl);
+            var pr = await ctvFetchRawWithTimeout(pUrl, {}, 6500);
             if (pr.ok) {
               var pj = await pr.json();
               if (pj && pj.body) {
@@ -737,11 +1169,11 @@
 
       try {
         targetUrl = ctvSignPjUrl(targetUrl);
-        var rOmit = await _nativeFetch(targetUrl, {
+        var rOmit = await ctvFetchRawWithTimeout(targetUrl, {
           headers: { Accept: 'application/json' },
           credentials: 'omit',
           cache: 'no-store'
-        });
+        }, 6500);
         if (rOmit.ok) {
           var jOmit = await rOmit.json();
           if (jOmit && jOmit.status !== 'error') return jOmit;
@@ -794,10 +1226,21 @@
         return _nativeFetch.apply(this, arguments);
       }
 
+      var effectiveInit = init;
+      if (!effectiveInit && typeof Request === 'function' && resource instanceof Request) {
+        effectiveInit = {
+          method: resource.method,
+          headers: resource.headers,
+          credentials: resource.credentials,
+          mode: resource.mode,
+          cache: resource.cache
+        };
+      }
+
       // 0A. Neutralizar comprobador heredado de APK (/app/version.php) para evitar falsos modales de actualización en Desktop/Mobile v1.6.0
       if (url.indexOf('/app/version.php') >= 0) {
         try {
-          var vResp = await _nativeFetch.apply(this, arguments);
+          var vResp = await ctvFetchRawWithTimeout(ctvSignPjUrl(url), effectiveInit, 4500);
           if (vResp && vResp.ok) {
             var vJson = await vResp.clone().json().catch(function () { return null; });
             if (vJson && typeof vJson === 'object') {
@@ -814,7 +1257,7 @@
       // 0B. Agenda Deportiva (api-agenda.php): respaldo automático si falla el fetch directo
       if (url.indexOf('api-agenda.php') >= 0) {
         try {
-          var agResp = await ctvFetchPjAuthed(url, init);
+          var agResp = await ctvFetchPjAuthed(url, effectiveInit);
           if (agResp.ok) {
             var agClone = agResp.clone();
             var agJson = await agClone.json().catch(function () { return null; });
@@ -827,13 +1270,38 @@
         if (agByp && Array.isArray(agByp.data)) {
           return jsonResponse(agByp);
         }
-        return ctvFetchPjAuthed(url, init);
+        return ctvFetchPjAuthed(url, effectiveInit);
+      }
+
+      // 0C. Lista de canales TV en vivo (canales_json.php): respaldo automático si falla o devuelve !ok
+      if (url.indexOf('/app/canales_json.php') >= 0) {
+        var cResp = null;
+        var cErr = null;
+        try {
+          cResp = await ctvFetchPjAuthed(url, effectiveInit);
+          if (cResp && cResp.ok) {
+            var cClone = cResp.clone();
+            var cJson = await cClone.json().catch(function () { return null; });
+            if (Array.isArray(cJson)) {
+              return jsonResponse(cJson);
+            }
+          }
+        } catch (e) {
+          cErr = e;
+        }
+        var cByp = await ctvFetchPjBypass(url);
+        if (Array.isArray(cByp)) {
+          return jsonResponse(cByp);
+        }
+        if (cResp) return cResp;
+        if (cErr) throw cErr;
+        return ctvFetchPjAuthed(url, effectiveInit);
       }
 
       var isCatalogList = url.indexOf('/app/movies.php') >= 0 || url.indexOf('/app/series.php') >= 0 || url.indexOf('/app/home.php') >= 0 || url.indexOf('/app/buscar.php') >= 0;
       if (isCatalogList && url.indexOf('slug=') < 0) {
         try {
-          var resp = await ctvFetchPjAuthed(url, init);
+          var resp = await ctvFetchPjAuthed(url, effectiveInit);
           if (resp && !resp.ok) {
             var bypListHttp = await ctvFetchPjBypass(url);
             if (bypListHttp) {
@@ -866,7 +1334,7 @@
         }
 
         try {
-          var mResp = await ctvFetchPjAuthed(url, init);
+          var mResp = await ctvFetchPjAuthed(url, effectiveInit);
           if (mResp.status === 200) {
             var mClone = mResp.clone();
             var mJson = await mClone.json().catch(function () { return null; });
@@ -906,7 +1374,7 @@
         }
 
         try {
-          var sResp = await ctvFetchPjAuthed(url, init);
+          var sResp = await ctvFetchPjAuthed(url, effectiveInit);
           if (sResp.status === 200) {
             var sClone = sResp.clone();
             var sJson = await sClone.json().catch(function () { return null; });
@@ -942,7 +1410,7 @@
 
       if (url.indexOf('/app/series.php?') >= 0 && url.indexOf('&t=') >= 0 && url.indexOf('&e=') < 0) {
         try {
-          var tResp = await ctvFetchPjAuthed(url, init);
+          var tResp = await ctvFetchPjAuthed(url, effectiveInit);
           if (tResp.status === 200) {
             var tClone = tResp.clone();
             var tJson = await tClone.json().catch(function () { return null; });
@@ -963,7 +1431,7 @@
         }
 
         try {
-          var epResp = await ctvFetchPjAuthed(url, init);
+          var epResp = await ctvFetchPjAuthed(url, effectiveInit);
           if (epResp.status === 200) {
             var epClone = epResp.clone();
             var epJson = await epClone.json().catch(function () { return null; });
@@ -983,7 +1451,7 @@
         return jsonResponse({ status: 'ok', servidores: [] });
       }
 
-      return ctvFetchPjAuthed(url, init);
+      return ctvFetchPjAuthed(url, effectiveInit);
     };
   } catch (e) {}
 
@@ -1279,6 +1747,8 @@
     }
 
     function cleanupActivePlayback() {
+      window.__ctvActiveHlsFatalCb = null;
+      window.__ctvActiveSubframeErrorCb = null;
       while (activePlaybackCleanups.length) {
         var fn = activePlaybackCleanups.pop();
         try { fn(); } catch (e) {}
@@ -1348,9 +1818,14 @@
 
     var IMAGE_MODES = ['original', 'sharp', 'cinema'];
     var IMAGE_MODE_LABELS = {
-      original: '✨ Original',
-      sharp: '✨ Nítido HD',
-      cinema: '✨ Cine'
+      original: 'Original',
+      sharp: 'Nítido HD',
+      cinema: 'Cine'
+    };
+    var IMAGE_MODE_SHORT = {
+      original: 'Imagen',
+      sharp: 'Nítido',
+      cinema: 'Cine'
     };
 
     function ensureSvgFilters() {
@@ -1382,7 +1857,8 @@
         mBtn.className = 'btn focusable hidden';
         mBtn.tabIndex = 0;
         mBtn.title = 'Modo de imagen (Original / Nítido HD / Cine)';
-        mBtn.textContent = '✨ Original';
+        mBtn.setAttribute('aria-label', 'Modo de imagen');
+        mBtn.innerHTML = ctvIcon('image', 16) + '<span class="ctv-btn-lbl">Imagen</span>';
         var subBtn = document.getElementById('player-subs');
         var favBtn = document.getElementById('player-fav');
         if (subBtn && subBtn.parentNode === pBar) pBar.insertBefore(mBtn, subBtn);
@@ -1391,7 +1867,7 @@
       }
       mBtn.onclick = function (e) {
         e.stopPropagation();
-        cycleImageMode();
+        showImageModeModal();
       };
       return mBtn;
     }
@@ -1414,12 +1890,65 @@
       if (pf) pf.style.filter = filterCss === 'none' ? '' : filterCss;
       var mBtn = ensureImageModeButton();
       if (mBtn) {
-        mBtn.textContent = IMAGE_MODE_LABELS[target] || '✨ Original';
+        var shortLbl = IMAGE_MODE_SHORT[target] || 'Imagen';
+        mBtn.innerHTML = ctvIcon('image', 16) + '<span class="ctv-btn-lbl">' + shortLbl + '</span>';
+        mBtn.setAttribute('aria-label', 'Modo de imagen');
       }
       if (persist && typeof ctvSaveUserPrefs === 'function') {
         ctvSaveUserPrefs({ imageMode: target });
       }
       return target;
+    }
+
+    function showImageModeModal() {
+      var old = document.getElementById('ctv-imgmode-modal');
+      if (old) { old.remove(); return; }
+      var prefs = typeof ctvGetUserPrefs === 'function' ? ctvGetUserPrefs() : { imageMode: 'original' };
+      var cur = IMAGE_MODES.indexOf(prefs.imageMode) >= 0 ? prefs.imageMode : 'original';
+
+      var modal = document.createElement('div');
+      modal.id = 'ctv-imgmode-modal';
+      modal.className = 'modal';
+      modal.style.zIndex = '99999';
+      modal.innerHTML =
+        '<div class="dialog" style="max-width:420px">' +
+        '<div class="dialog-head"><h3>Modo de imagen</h3><button class="btn focusable" id="ctv-imgmode-close" tabindex="0" aria-label="Cerrar">' + ctvIcon('close', 16) + '</button></div>' +
+        '<div class="server-list" id="ctv-imgmode-list" style="max-height:55vh;overflow-y:auto"></div>' +
+        '</div>';
+      document.body.appendChild(modal);
+
+      var listEl = modal.querySelector('#ctv-imgmode-list');
+      var focusTarget = null;
+      var opts = [
+        { id: 'original', title: 'Original', sub: 'Sin filtros' },
+        { id: 'sharp', title: 'Nítido HD', sub: 'Mayor nitidez' },
+        { id: 'cinema', title: 'Cine', sub: 'Contraste equilibrado' }
+      ];
+
+      opts.forEach(function (item) {
+        var active = cur === item.id;
+        var b = document.createElement('button');
+        b.className = 'ctv-opt-row focusable' + (active ? ' active' : '');
+        b.tabIndex = 0;
+        b.innerHTML =
+          '<span class="ctv-opt-main"><span class="ctv-opt-title">' + item.title + '</span><small class="ctv-opt-sub">' + item.sub + '</small></span>' +
+          (active ? ctvIcon('check', 16) : '');
+        b.onclick = function () {
+          applyImageMode(item.id, true);
+          if (typeof window.ctvShowToast === 'function') {
+            window.ctvShowToast('Modo de imagen: ' + item.title);
+          }
+          modal.remove();
+        };
+        listEl.appendChild(b);
+        if (active) focusTarget = b;
+      });
+
+      modal.querySelector('#ctv-imgmode-close').onclick = function () { modal.remove(); };
+      modal.addEventListener('click', function (e) { if (e.target === modal) modal.remove(); });
+      setTimeout(function () {
+        if (focusTarget && focusTarget.focus) focusTarget.focus();
+      }, 50);
     }
 
     function cycleImageMode() {
@@ -1445,7 +1974,8 @@
         qBtn.className = 'btn focusable hidden';
         qBtn.tabIndex = 0;
         qBtn.title = 'Calidad de video';
-        qBtn.textContent = '🎬 HD';
+        qBtn.setAttribute('aria-label', 'Calidad de video');
+        qBtn.innerHTML = ctvIcon('quality', 16) + '<span class="ctv-btn-lbl">HD</span>';
         var mBtn = document.getElementById('player-imgmode');
         var subBtn = document.getElementById('player-subs');
         var favBtn = document.getElementById('player-fav');
@@ -1459,9 +1989,9 @@
 
     function formatHeightLabel(h) {
       var num = parseInt(h, 10) || 0;
-      if (num >= 2160) return '4K UHD';
-      if (num >= 1080) return '1080p FHD';
-      if (num >= 720) return '720p HD';
+      if (num >= 2160) return '4K';
+      if (num >= 1080) return '1080p';
+      if (num >= 720) return '720p';
       if (num >= 480) return '480p';
       if (num > 0) return num + 'p';
       return 'HD';
@@ -1481,7 +2011,9 @@
         var curLvl = hls.levels[curIdx] || hls.levels[hls.levels.length - 1];
         var h = (curLvl && curLvl.height) || 0;
         var isAuto = Boolean(hls.autoLevelEnabled || hls.currentLevel === -1 || hls.nextLevel === -1);
-        qBtn.textContent = '🎬 ' + (isAuto ? ('Auto · ' + formatHeightLabel(h)) : formatHeightLabel(h));
+        var qLabel = isAuto ? ('Auto · ' + formatHeightLabel(h)) : formatHeightLabel(h);
+        qBtn.innerHTML = ctvIcon('quality', 16) + '<span class="ctv-btn-lbl">' + qLabel + '</span>';
+        qBtn.setAttribute('aria-label', 'Calidad de video');
         qBtn.classList.remove('hidden');
         qBtn.onclick = function (e) {
           e.stopPropagation();
@@ -1491,12 +2023,13 @@
       }
       var video = document.getElementById('player-video');
       if (video && !video.classList.contains('hidden') && video.videoHeight > 0) {
-        qBtn.textContent = '🎬 ' + formatHeightLabel(video.videoHeight);
+        qBtn.innerHTML = ctvIcon('quality', 16) + '<span class="ctv-btn-lbl">' + formatHeightLabel(video.videoHeight) + '</span>';
+        qBtn.setAttribute('aria-label', 'Calidad de video');
         qBtn.classList.remove('hidden');
         qBtn.onclick = function (e) {
           e.stopPropagation();
           if (typeof window.ctvShowToast === 'function') {
-            window.ctvShowToast('🎬 Reproduciendo en ' + formatHeightLabel(video.videoHeight) + ' (' + video.videoWidth + '×' + video.videoHeight + ')');
+            window.ctvShowToast('Reproduciendo en ' + formatHeightLabel(video.videoHeight) + ' (' + video.videoWidth + 'x' + video.videoHeight + ')');
           }
         };
       }
@@ -1514,7 +2047,7 @@
       modal.style.zIndex = '99999';
       modal.innerHTML =
         '<div class="dialog" style="max-width:420px">' +
-        '<div class="dialog-head"><h3>🎬 Calidad de video</h3><button class="btn focusable" id="ctv-quality-close" tabindex="0">✕</button></div>' +
+        '<div class="dialog-head"><h3>Calidad de video</h3><button class="btn focusable" id="ctv-quality-close" tabindex="0" aria-label="Cerrar">' + ctvIcon('close', 16) + '</button></div>' +
         '<div class="server-list" id="ctv-quality-list" style="max-height:55vh;overflow-y:auto"></div>' +
         '</div>';
       document.body.appendChild(modal);
@@ -1524,9 +2057,11 @@
       var focusTarget = null;
 
       var autoBtn = document.createElement('button');
-      autoBtn.className = 'focusable';
+      autoBtn.className = 'ctv-opt-row focusable' + (isAuto ? ' active' : '');
       autoBtn.tabIndex = 0;
-      autoBtn.innerHTML = '<span>' + (isAuto ? '✔ ' : '') + 'Automática (HD 1080p Priorizado)</span>';
+      autoBtn.innerHTML =
+        '<span class="ctv-opt-main"><span class="ctv-opt-title">Automática</span><small class="ctv-opt-sub">Prioriza 1080p automáticamente</small></span>' +
+        (isAuto ? ctvIcon('check', 16) : '');
       autoBtn.onclick = function () {
         try { hls.currentLevel = -1; hls.nextLevel = -1; } catch (e) {}
         if (typeof ctvSaveUserPrefs === 'function') ctvSaveUserPrefs({ preferredQuality: 'auto' });
@@ -1548,11 +2083,15 @@
         if (seenHeights.has(key)) return;
         seenHeights.add(key);
         var b = document.createElement('button');
-        b.className = 'focusable';
-        b.tabIndex = 0;
         var active = !isAuto && hls.currentLevel === item.idx;
-        var kbps = item.bitrate ? (' · ' + (item.bitrate / 1000000).toFixed(1) + ' Mbps') : '';
-        b.innerHTML = '<span>' + (active ? '✔ ' : '') + formatHeightLabel(item.height) + kbps + '</span>';
+        b.className = 'ctv-opt-row focusable' + (active ? ' active' : '');
+        b.tabIndex = 0;
+        var mbps = item.bitrate ? ((item.bitrate / 1000000).toFixed(1) + ' Mbps') : '';
+        b.innerHTML =
+          '<span class="ctv-opt-main"><span class="ctv-opt-title">' + formatHeightLabel(item.height) + '</span>' +
+          (mbps ? '<small class="ctv-opt-sub">' + mbps + '</small>' : '') +
+          '</span>' +
+          (active ? ctvIcon('check', 16) : '');
         b.onclick = function () {
           try { hls.currentLevel = item.idx; hls.loadLevel = item.idx; } catch (e) {}
           if (item.height > 0 && typeof ctvSaveUserPrefs === 'function') {
@@ -1625,9 +2164,15 @@
                 setActiveHls(null);
               }
             };
+            var onHlsError = function (_ev, data) {
+              if (data && data.fatal && typeof window.__ctvActiveHlsFatalCb === 'function') {
+                window.__ctvActiveHlsFatalCb(data);
+              }
+            };
             hlsInst.on('hlsManifestParsed', onManifestParsed);
             hlsInst.on('hlsLevelSwitched', onLevelSwitched);
             hlsInst.on('hlsDestroying', onDestroying);
+            hlsInst.on('hlsError', onHlsError);
             registerPlaybackCleanup(function () {
               try {
                 var curHls = ref.deref();
@@ -1635,6 +2180,7 @@
                   curHls.off('hlsManifestParsed', onManifestParsed);
                   curHls.off('hlsLevelSwitched', onLevelSwitched);
                   curHls.off('hlsDestroying', onDestroying);
+                  curHls.off('hlsError', onHlsError);
                 }
               } catch (e) {}
               setActiveHls(null);
@@ -1645,7 +2191,6 @@
     };
 
     if (!window.__ctvHlsHookVersion) {
-      window.__ctvHlsHookVersion = 15;
       try {
         var existingDesc = Object.getOwnPropertyDescriptor(Object.prototype, 'userConfig');
         if (!existingDesc || existingDesc.configurable !== false) {
@@ -1674,6 +2219,7 @@
         }
       } catch (e) {}
     }
+    window.__ctvHlsHookVersion = 19;
 
     try {
       var pvEl = document.getElementById('player-video');
@@ -1684,7 +2230,19 @@
       }
     } catch (e) {}
 
-    function cleanupSubs() {
+    function removeResumePrompt() {
+      try {
+        if (window.__ctvResumePromptTimer) {
+          clearTimeout(window.__ctvResumePromptTimer);
+          window.__ctvResumePromptTimer = null;
+        }
+        var el = document.getElementById('ctv-resume-prompt');
+        if (el && el.parentNode) el.remove();
+      } catch (e) {}
+    }
+    window.ctvRemoveResumePrompt = removeResumePrompt;
+
+    function resetSubtitleTracksOnly() {
       activeBlobUrls.forEach(function (u) {
         try { URL.revokeObjectURL(u); } catch (e) {}
       });
@@ -1695,18 +2253,30 @@
       if (subBtn) subBtn.classList.add('hidden');
       var subModal = document.getElementById('ctv-subs-modal');
       if (subModal) subModal.remove();
+      var video = document.getElementById('player-video');
+      if (video) {
+        var tracks = video.querySelectorAll('track');
+        for (var i = 0; i < tracks.length; i++) tracks[i].remove();
+      }
+    }
+
+    function cleanupSubs() {
+      resetSubtitleTracksOnly();
+      removeResumePrompt();
+      var nsBtn = document.getElementById('player-next-srv');
+      if (nsBtn) nsBtn.classList.add('hidden');
       var qBtn = document.getElementById('player-quality');
       if (qBtn) qBtn.classList.add('hidden');
       var qModal = document.getElementById('ctv-quality-modal');
       if (qModal) qModal.remove();
       var mBtn = document.getElementById('player-imgmode');
       if (mBtn) mBtn.classList.add('hidden');
+      var imgModal = document.getElementById('ctv-imgmode-modal');
+      if (imgModal) imgModal.remove();
       setActiveHls(null);
       var video = document.getElementById('player-video');
       if (video) {
         video.onerror = null;
-        var tracks = video.querySelectorAll('track');
-        for (var i = 0; i < tracks.length; i++) tracks[i].remove();
       }
     }
 
@@ -1717,25 +2287,647 @@
       } catch (e) {}
     }
 
+    function removeFailoverPill() {
+      try {
+        var pill = document.getElementById('ctv-failover-pill');
+        if (pill && pill.parentNode) pill.remove();
+      } catch (e) {}
+    }
+    window.ctvRemoveFailoverPill = removeFailoverPill;
+
+    function clearPlayerBarHideTimer() {
+      if (window.__ctvBarHideTimer) {
+        clearTimeout(window.__ctvBarHideTimer);
+        window.__ctvBarHideTimer = null;
+      }
+      if (window.__ctvBarFadeTimer) {
+        clearTimeout(window.__ctvBarFadeTimer);
+        window.__ctvBarFadeTimer = null;
+      }
+    }
+
+    function isPlayerBarSticky() {
+      var pBar = document.getElementById('player-bar');
+      if (!pBar) return false;
+      if (document.getElementById('ctv-agenda-status')) return true;
+      if (document.getElementById('ctv-quality-modal') || document.getElementById('ctv-imgmode-modal') || document.getElementById('ctv-subs-modal')) return true;
+      try {
+        if (document.activeElement && pBar.contains(document.activeElement)) return true;
+      } catch (e) {}
+      try {
+        if (typeof pBar.matches === 'function' && pBar.matches(':hover')) return true;
+      } catch (e) {}
+      return false;
+    }
+
+    function schedulePlayerBarAutoHide() {
+      clearPlayerBarHideTimer();
+      window.__ctvBarHideTimer = setTimeout(function () {
+        window.__ctvBarHideTimer = null;
+        var modal = document.getElementById('player-modal');
+        var pBar = document.getElementById('player-bar');
+        if (!modal || modal.classList.contains('hidden') || !pBar) return;
+        if (isPlayerBarSticky()) {
+          schedulePlayerBarAutoHide();
+          return;
+        }
+        window.__ctvBarProgrammaticHide = true;
+        try {
+          pBar.style.opacity = '0';
+        } finally {
+          window.__ctvBarProgrammaticHide = false;
+        }
+        window.__ctvBarFadeTimer = setTimeout(function () {
+          window.__ctvBarFadeTimer = null;
+          var m2 = document.getElementById('player-modal');
+          var b2 = document.getElementById('player-bar');
+          if (!m2 || m2.classList.contains('hidden') || !b2) return;
+          if (isPlayerBarSticky()) {
+            window.ctvRevealPlayerBar();
+            return;
+          }
+          window.__ctvBarProgrammaticHide = true;
+          try {
+            b2.classList.add('hidden');
+            b2.style.pointerEvents = 'none';
+          } finally {
+            window.__ctvBarProgrammaticHide = false;
+          }
+        }, 300);
+      }, 4200);
+    }
+
+    function isDesktopElectronRuntime() {
+      return Boolean(window.DesktopBridge || (typeof window.ctvIsDesktopProxyAvailable === 'function' && window.ctvIsDesktopProxyAvailable()));
+    }
+
+    function pushPlayerHistoryState() {
+      // Nunca usar history.pushState en Electron Desktop (evita carreras NC_IN_PAGE_NAVIGATION / bad IPC message reason 1 con subframes)
+      if (isDesktopElectronRuntime()) return;
+      try {
+        if (window.history && typeof window.history.pushState === 'function') {
+          if (!(window.history.state && window.history.state.__ctvPlayerOpen)) {
+            window.history.pushState(Object.assign({}, window.history.state || {}, { __ctvPlayerOpen: true }), '');
+          }
+        }
+      } catch (e) {}
+    }
+
+    function ensurePlayerWakeZone() {
+      try {
+        var modal = document.getElementById('player-modal');
+        if (!modal) return null;
+        var wz = document.getElementById('ctv-player-wake-zone');
+        if (!wz) {
+          wz = document.createElement('div');
+          wz.id = 'ctv-player-wake-zone';
+          wz.setAttribute('aria-hidden', 'true');
+          modal.appendChild(wz);
+        }
+        if (!wz.__ctvWakeBound) {
+          wz.__ctvWakeBound = true;
+          var revealHandler = function () {
+            if (typeof window.ctvRevealPlayerBar === 'function') window.ctvRevealPlayerBar();
+          };
+          wz.addEventListener('mouseenter', revealHandler);
+          wz.addEventListener('mousemove', revealHandler);
+          wz.addEventListener('touchstart', revealHandler, { passive: true });
+          wz.addEventListener('click', revealHandler);
+        }
+        if (!modal.__ctvModalRevealBound) {
+          modal.__ctvModalRevealBound = true;
+          var modalReveal = function () {
+            if (typeof window.ctvRevealPlayerBar === 'function') window.ctvRevealPlayerBar();
+          };
+          modal.addEventListener('mousemove', modalReveal);
+          modal.addEventListener('touchstart', modalReveal, { passive: true });
+        }
+        var pBar = document.getElementById('player-bar');
+        if (pBar) {
+          if (!pBar.__ctvBarHoverBound) {
+            pBar.__ctvBarHoverBound = true;
+            pBar.addEventListener('mouseenter', function () {
+              if (typeof window.ctvRevealPlayerBar === 'function') window.ctvRevealPlayerBar();
+            });
+            pBar.addEventListener('focusin', function () {
+              if (typeof window.ctvRevealPlayerBar === 'function') window.ctvRevealPlayerBar();
+            });
+            pBar.addEventListener('mouseleave', function () {
+              schedulePlayerBarAutoHide();
+            });
+            pBar.addEventListener('focusout', function () {
+              setTimeout(function () {
+                var curModal = document.getElementById('player-modal');
+                if (curModal && !curModal.classList.contains('hidden')) {
+                  schedulePlayerBarAutoHide();
+                }
+              }, 40);
+            });
+          }
+          if (window.__ctvBarAttrObserver) {
+            try { window.__ctvBarAttrObserver.disconnect(); } catch (e) {}
+            window.__ctvBarAttrObserver = null;
+          }
+          if (typeof MutationObserver === 'function') {
+            var barObs = new MutationObserver(function () {
+              if (window.__ctvBarProgrammaticHide) return;
+              var curModal = document.getElementById('player-modal');
+              if (!curModal || curModal.classList.contains('hidden')) return;
+              var needKeep = isPlayerBarSticky() || ((Date.now() - (window.__ctvBarRevealTs || 0)) < 4100);
+              if (needKeep && (pBar.classList.contains('hidden') || pBar.style.opacity === '0')) {
+                window.__ctvBarProgrammaticHide = true;
+                try {
+                  pBar.classList.remove('hidden');
+                  pBar.style.opacity = '1';
+                  pBar.style.pointerEvents = 'auto';
+                } finally {
+                  window.__ctvBarProgrammaticHide = false;
+                }
+              }
+            });
+            barObs.observe(pBar, { attributes: true, attributeFilter: ['class', 'style'] });
+            window.__ctvBarAttrObserver = barObs;
+          }
+        }
+        if (window.__ctvPlayerModalClassObserver) {
+          try { window.__ctvPlayerModalClassObserver.disconnect(); } catch (e) {}
+          window.__ctvPlayerModalClassObserver = null;
+        }
+        if (typeof MutationObserver === 'function') {
+          var prevOpen = !modal.classList.contains('hidden');
+          var modalObs = new MutationObserver(function () {
+            var nowOpen = !modal.classList.contains('hidden');
+            if (nowOpen && !prevOpen) {
+              pushPlayerHistoryState();
+              ensurePlayerWakeZone();
+              if (typeof window.ctvRevealPlayerBar === 'function') window.ctvRevealPlayerBar();
+            }
+            prevOpen = nowOpen;
+          });
+          modalObs.observe(modal, { attributes: true, attributeFilter: ['class'] });
+          window.__ctvPlayerModalClassObserver = modalObs;
+        }
+        return wz;
+      } catch (e) {
+        return null;
+      }
+    }
+    window.ctvEnsurePlayerWakeZone = ensurePlayerWakeZone;
+
+    window.ctvRevealPlayerBar = function () {
+      try {
+        ensurePlayerWakeZone();
+        var pBar = document.getElementById('player-bar');
+        if (!pBar) return;
+        clearPlayerBarHideTimer();
+        window.__ctvBarRevealTs = Date.now();
+        window.__ctvBarProgrammaticHide = true;
+        try {
+          pBar.classList.remove('hidden');
+          pBar.style.opacity = '1';
+          pBar.style.pointerEvents = 'auto';
+        } finally {
+          window.__ctvBarProgrammaticHide = false;
+        }
+        schedulePlayerBarAutoHide();
+      } catch (e) {}
+    };
+
+    function isElementVisibleForFocus(el) {
+      if (!el || !el.isConnected) return false;
+      if (el.closest && el.closest('.hidden')) return false;
+      try {
+        var st = window.getComputedStyle(el);
+        if (st && (st.display === 'none' || st.visibility === 'hidden')) return false;
+      } catch (e) {}
+      return true;
+    }
+
+    function restoreFocusAfterPlayerClose() {
+      try {
+        var focusTarget = null;
+        var lastBtn = window.__ctvLastServerBtn;
+        if (isElementVisibleForFocus(lastBtn)) {
+          focusTarget = lastBtn;
+        } else {
+          var srvModal = document.getElementById('server-modal');
+          var detailModal = document.getElementById('detail-modal');
+          if (srvModal && !srvModal.classList.contains('hidden')) {
+            focusTarget = srvModal.querySelector('button.focusable, .server-list button, #server-close');
+          } else if (detailModal && !detailModal.classList.contains('hidden')) {
+            focusTarget = detailModal.querySelector('#detail-servers button, #serie-servers-wrap .server-list button, #detail-watch, #detail-topback');
+          } else {
+            focusTarget = document.querySelector('#content .card.focusable, #content .agenda-card, .menu-item.active, .menu-item');
+          }
+        }
+        if (focusTarget && typeof focusTarget.focus === 'function') {
+          try { focusTarget.focus({ preventScroll: true }); } catch (e) { try { focusTarget.focus(); } catch (x) {} }
+          setTimeout(function () {
+            try {
+              if (isElementVisibleForFocus(focusTarget) && (!document.activeElement || document.activeElement === document.body)) {
+                focusTarget.focus({ preventScroll: true });
+              }
+            } catch (e) {}
+          }, 60);
+        }
+      } catch (e) {}
+    }
+
+    window.ctvForceClosePlayer = function () {
+      window.__ctvPlaySessionId = (window.__ctvPlaySessionId || 0) + 1;
+      if (window.__ctvActiveFailoverState) {
+        window.__ctvActiveFailoverState.cancelled = true;
+        if (window.__ctvActiveFailoverState.jumpTimer) {
+          clearTimeout(window.__ctvActiveFailoverState.jumpTimer);
+          window.__ctvActiveFailoverState.jumpTimer = null;
+        }
+        window.__ctvActiveFailoverState = null;
+      }
+      clearPlayerBarHideTimer();
+      try {
+        cleanupActivePlayback();
+        cleanupSubs();
+        revokeStreamBlob();
+        removePlayerLoader();
+        removeAgendaStatusOverlay();
+        removeFailoverPill();
+        if (typeof window.__ctvClosePlayer === 'function' && !window.__ctvClosingGuard) {
+          window.__ctvClosingGuard = true;
+          window.__ctvClosePlayer();
+        }
+      } catch (e) {
+      } finally {
+        window.__ctvClosingGuard = false;
+        try {
+          var modal = document.getElementById('player-modal');
+          if (modal) modal.classList.add('hidden');
+        } catch (e) {}
+        try {
+          var pv = document.getElementById('player-video');
+          if (pv) {
+            try { pv.pause(); } catch (e) {}
+            pv.onerror = null;
+            pv.removeAttribute('src');
+            try { pv.load(); } catch (e) {}
+            pv.classList.add('hidden');
+          }
+        } catch (e) {}
+        try {
+          var pf = document.getElementById('player-frame');
+          if (pf) {
+            var curFrameSrc = pf.getAttribute('src') || '';
+            var hasSrcDoc = pf.hasAttribute('srcdoc');
+            if (curFrameSrc && curFrameSrc !== 'about:blank') {
+              try {
+                if (pf.contentWindow && typeof pf.contentWindow.stop === 'function') {
+                  pf.contentWindow.stop();
+                }
+              } catch (e) {}
+            }
+            pf.classList.add('hidden');
+            if (hasSrcDoc) {
+              try { pf.removeAttribute('srcdoc'); } catch (e) {}
+            }
+            try { pf.removeAttribute('sandbox'); } catch (e) {}
+            if (curFrameSrc !== 'about:blank') {
+              try { pf.src = 'about:blank'; } catch (e) {}
+            }
+          }
+        } catch (e) {}
+        try {
+          var floatIds = [
+            'ctv-quality-modal',
+            'ctv-imgmode-modal',
+            'ctv-subs-modal',
+            'ctv-resume-prompt',
+            'ctv-player-loader',
+            'ctv-agenda-status',
+            'ctv-failover-pill'
+          ];
+          for (var fi = 0; fi < floatIds.length; fi++) {
+            var fel = document.getElementById(floatIds[fi]);
+            if (fel && fel.parentNode) fel.parentNode.removeChild(fel);
+          }
+        } catch (e) {}
+        try {
+          var hideIds = ['player-next-srv', 'player-quality', 'player-imgmode', 'player-subs'];
+          for (var hi = 0; hi < hideIds.length; hi++) {
+            var hel = document.getElementById(hideIds[hi]);
+            if (hel) hel.classList.add('hidden');
+          }
+        } catch (e) {}
+        try {
+          var pFavRestore = document.getElementById('player-fav');
+          if (pFavRestore) pFavRestore.classList.remove('hidden');
+        } catch (e) {}
+        try {
+          if (!isDesktopElectronRuntime() && window.history && window.history.state && window.history.state.__ctvPlayerOpen && typeof window.history.replaceState === 'function') {
+            var nextState = Object.assign({}, window.history.state);
+            delete nextState.__ctvPlayerOpen;
+            window.history.replaceState(nextState, '');
+          }
+        } catch (e) {}
+        restoreFocusAfterPlayerClose();
+        if (typeof window.__ctvFlushPendingOta === 'function') {
+          setTimeout(window.__ctvFlushPendingOta, 120);
+        }
+      }
+    };
+
+    window.ctvHandleBackAction = function (opts) {
+      var subModal = document.getElementById('ctv-quality-modal') || document.getElementById('ctv-imgmode-modal') || document.getElementById('ctv-subs-modal');
+      if (subModal) {
+        var retId = subModal.id === 'ctv-quality-modal'
+          ? 'player-quality'
+          : (subModal.id === 'ctv-imgmode-modal' ? 'player-imgmode' : 'player-subs');
+        try { subModal.remove(); } catch (e) {}
+        var retBtn = document.getElementById(retId);
+        if (retBtn && !retBtn.classList.contains('hidden') && typeof retBtn.focus === 'function') {
+          try { retBtn.focus({ preventScroll: true }); } catch (e) { try { retBtn.focus(); } catch (x) {} }
+        }
+        return true;
+      }
+
+      var pModal = document.getElementById('player-modal');
+      if (pModal && !pModal.classList.contains('hidden')) {
+        try {
+          var fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+          if (fsEl && (fsEl === pModal || pModal.contains(fsEl))) {
+            if (document.exitFullscreen) document.exitFullscreen().catch(function () {});
+            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+          }
+        } catch (e) {}
+        if (typeof window.ctvForceClosePlayer === 'function') {
+          window.ctvForceClosePlayer();
+        }
+        return true;
+      }
+
+      var updModal = document.getElementById('update-modal');
+      if (updModal && !updModal.classList.contains('hidden')) {
+        var laterBtn = document.getElementById('btn-update-later');
+        if (laterBtn && laterBtn.style.display !== 'none' && typeof laterBtn.click === 'function') {
+          laterBtn.click();
+        } else {
+          updModal.classList.add('hidden');
+        }
+        return true;
+      }
+
+      var srvModal = document.getElementById('server-modal');
+      if (srvModal && !srvModal.classList.contains('hidden')) {
+        var srvClose = document.getElementById('server-close');
+        if (srvClose && typeof srvClose.click === 'function') {
+          srvClose.click();
+        }
+        srvModal.classList.add('hidden');
+        return true;
+      }
+
+      var isFs = Boolean(
+        document.fullscreenElement ||
+        document.webkitFullscreenElement ||
+        window.__ctvIsFullscreen ||
+        (opts && opts.isFullscreen)
+      );
+      if (isFs) {
+        if (typeof window.ctvExitFullscreen === 'function') {
+          window.ctvExitFullscreen();
+        }
+        return true;
+      }
+
+      return false;
+    };
+
+    function installLateSafeWrapper(propName, makeWrapper, origStoreKey) {
+      try {
+        var cur = window[propName];
+        if (typeof cur === 'function') {
+          var baseFn = cur[origStoreKey] || cur;
+          var wrapped = makeWrapper(baseFn);
+          wrapped.__ctvWrapperTag = true;
+          wrapped[origStoreKey] = baseFn;
+          window[propName] = wrapped;
+          return;
+        }
+        var desc = Object.getOwnPropertyDescriptor(window, propName);
+        if (!desc || desc.configurable !== false) {
+          Object.defineProperty(window, propName, {
+            configurable: true,
+            enumerable: true,
+            get: function () { return undefined; },
+            set: function (fn) {
+              var base = (typeof fn === 'function' && fn[origStoreKey]) ? fn[origStoreKey] : fn;
+              var wrappedVal = typeof base === 'function' ? makeWrapper(base) : fn;
+              if (typeof wrappedVal === 'function') {
+                wrappedVal.__ctvWrapperTag = true;
+                wrappedVal[origStoreKey] = base;
+              }
+              Object.defineProperty(window, propName, {
+                value: wrappedVal,
+                writable: true,
+                enumerable: true,
+                configurable: true
+              });
+            }
+          });
+        }
+      } catch (e) {}
+    }
+
+    function ctvOpenModalSafe(title) {
+      ensurePlayerWakeZone();
+      pushPlayerHistoryState();
+      var fn = window.__ctvOrigOpenModal || window.__ctvOpenModal;
+      if (typeof fn === 'function' && fn !== ctvOpenModalSafe) {
+        fn.apply(this, arguments);
+      } else {
+        var modal = document.getElementById('player-modal');
+        var pTitle = document.getElementById('player-title');
+        var pf = document.getElementById('player-frame');
+        var pv = document.getElementById('player-video');
+        if (pTitle) pTitle.textContent = title || '';
+        if (pf) pf.classList.add('hidden');
+        if (pv) pv.classList.add('hidden');
+        if (modal) modal.classList.remove('hidden');
+      }
+      if (typeof window.ctvRevealPlayerBar === 'function') {
+        window.ctvRevealPlayerBar();
+      }
+    }
+    window.ctvOpenModal = ctvOpenModalSafe;
+
+    function bindGlobalExitHooks() {
+      ensurePlayerWakeZone();
+
+      installLateSafeWrapper('__ctvOpenModal', function (origOpenModal) {
+        return function () {
+          ensurePlayerWakeZone();
+          pushPlayerHistoryState();
+          var ret = typeof origOpenModal === 'function' ? origOpenModal.apply(this, arguments) : undefined;
+          if (typeof window.ctvRevealPlayerBar === 'function') {
+            window.ctvRevealPlayerBar();
+          }
+          return ret;
+        };
+      }, '__ctvOrigOpenModal');
+
+      installLateSafeWrapper('handleAndroidBackPressed', function (origAndroidBack) {
+        return function () {
+          if (typeof window.ctvHandleBackAction === 'function' && window.ctvHandleBackAction()) {
+            return true;
+          }
+          if (typeof origAndroidBack === 'function') {
+            return origAndroidBack.apply(this, arguments);
+          }
+          return false;
+        };
+      }, '__ctvOrigHandleAndroidBackPressed');
+
+      if (window.__ctvPlayerBackCaptureHandler) {
+        document.removeEventListener('click', window.__ctvPlayerBackCaptureHandler, true);
+      }
+      window.__ctvPlayerBackCaptureHandler = function (e) {
+        var t = e && e.target;
+        if (!t || !t.closest) return;
+        var backBtn = t.closest('#player-back');
+        if (!backBtn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        if (typeof window.ctvForceClosePlayer === 'function') {
+          window.ctvForceClosePlayer();
+        }
+      };
+      document.addEventListener('click', window.__ctvPlayerBackCaptureHandler, true);
+
+      if (window.DesktopBridge) {
+        if (typeof window.__ctvEscapeUnsub === 'function') {
+          try { window.__ctvEscapeUnsub(); } catch (e) {}
+          window.__ctvEscapeUnsub = null;
+        }
+        if (typeof window.DesktopBridge.onPlayerEscape === 'function') {
+          window.__ctvEscapeUnsub = window.DesktopBridge.onPlayerEscape(function (payload) {
+            var keyName = (payload && payload.key) || '';
+            if (payload && payload.exitedFullscreen) {
+              window.__ctvIsFullscreen = false;
+              var openSubModal = document.getElementById('ctv-quality-modal') || document.getElementById('ctv-imgmode-modal') || document.getElementById('ctv-subs-modal');
+              var openPlayerModal = document.getElementById('player-modal');
+              var isPlayerOpen = Boolean(openPlayerModal && !openPlayerModal.classList.contains('hidden'));
+              if (!openSubModal && !isPlayerOpen) {
+                window.__ctvLastIpcBackTs = Date.now();
+                window.__ctvLastIpcBackKey = keyName;
+                return;
+              }
+            }
+            if (window.__ctvLastLocalBackTs && (Date.now() - window.__ctvLastLocalBackTs) < 80) {
+              window.__ctvLastLocalBackTs = 0;
+              return;
+            }
+            if (typeof window.ctvHandleBackAction === 'function') {
+              var handled = window.ctvHandleBackAction({
+                fromIpc: true,
+                key: keyName,
+                isFullscreen: Boolean(payload && payload.isFullscreen && !payload.exitedFullscreen)
+              });
+              if (handled) {
+                window.__ctvLastIpcBackTs = Date.now();
+                window.__ctvLastIpcBackKey = keyName;
+              }
+            }
+          });
+        }
+
+        if (typeof window.__ctvSubframeErrUnsub === 'function') {
+          try { window.__ctvSubframeErrUnsub(); } catch (e) {}
+          window.__ctvSubframeErrUnsub = null;
+        }
+        if (typeof window.DesktopBridge.onSubframeError === 'function') {
+          window.__ctvSubframeErrUnsub = window.DesktopBridge.onSubframeError(function (payload) {
+            if (typeof window.__ctvActiveSubframeErrorCb === 'function') {
+              window.__ctvActiveSubframeErrorCb(payload || {});
+            }
+          });
+        }
+      }
+
+      if (window.__ctvPopstateHandler) {
+        window.removeEventListener('popstate', window.__ctvPopstateHandler);
+      }
+      window.__ctvPopstateHandler = function (ev) {
+        var pModal = document.getElementById('player-modal');
+        if (pModal && !pModal.classList.contains('hidden')) {
+          if (ev && typeof ev.stopImmediatePropagation === 'function') {
+            ev.stopImmediatePropagation();
+          }
+          if (typeof window.ctvForceClosePlayer === 'function') {
+            window.ctvForceClosePlayer();
+          }
+        }
+      };
+      window.addEventListener('popstate', window.__ctvPopstateHandler);
+
+      window.__ctvCapBackDelegate = function () {
+        if (typeof window.ctvHandleBackAction === 'function') {
+          return window.ctvHandleBackAction();
+        }
+        return false;
+      };
+      if (!window.__ctvCapBackBound) {
+        try {
+          var capApp = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
+          if (capApp && typeof capApp.addListener === 'function') {
+            window.__ctvCapBackBound = true;
+            capApp.addListener('backButton', function () {
+              if (typeof window.__ctvCapBackDelegate === 'function') {
+                window.__ctvCapBackDelegate();
+              }
+            });
+          }
+        } catch (e) {}
+      }
+    }
+
+    bindGlobalExitHooks();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bindGlobalExitHooks, { once: true });
+    }
+    window.addEventListener('load', bindGlobalExitHooks, { once: true });
+
     window.ctvOnPlayerClose = function () {
       window.__ctvPlaySessionId = (window.__ctvPlaySessionId || 0) + 1;
+      if (window.__ctvActiveFailoverState) {
+        window.__ctvActiveFailoverState.cancelled = true;
+        if (window.__ctvActiveFailoverState.jumpTimer) {
+          clearTimeout(window.__ctvActiveFailoverState.jumpTimer);
+          window.__ctvActiveFailoverState.jumpTimer = null;
+        }
+        window.__ctvActiveFailoverState = null;
+      }
+      clearPlayerBarHideTimer();
       cleanupActivePlayback();
       removePlayerLoader();
       cleanupSubs();
       revokeStreamBlob();
       removeAgendaStatusOverlay();
+      removeFailoverPill();
       var pFavRestore = document.getElementById('player-fav');
       if (pFavRestore) pFavRestore.classList.remove('hidden');
       var pfClose = document.getElementById('player-frame');
       if (pfClose) pfClose.removeAttribute('sandbox');
-      if (window.__ctvLastServerBtn && window.__ctvLastServerBtn.isConnected) {
-        var btn = window.__ctvLastServerBtn;
-        setTimeout(function () {
-          try { btn.focus({ preventScroll: true }); } catch (e) { try { btn.focus(); } catch (x) {} }
-        }, 60);
-      }
-      if (typeof window.__ctvFlushPendingOta === 'function') {
-        setTimeout(window.__ctvFlushPendingOta, 120);
+      if (!window.__ctvClosingGuard) {
+        try {
+          if (window.history && window.history.state && window.history.state.__ctvPlayerOpen && typeof window.history.replaceState === 'function') {
+            var nextState = Object.assign({}, window.history.state);
+            delete nextState.__ctvPlayerOpen;
+            window.history.replaceState(nextState, '');
+          }
+        } catch (e) {}
+        restoreFocusAfterPlayerClose();
+        if (typeof window.__ctvFlushPendingOta === 'function') {
+          setTimeout(window.__ctvFlushPendingOta, 120);
+        }
       }
     };
 
@@ -2364,11 +3556,12 @@
       }
       var subBtn = document.getElementById('player-subs');
       if (subBtn) {
-        if (index >= 0 && currentSubTracks[index]) {
-          subBtn.textContent = '💬 ' + currentSubTracks[index].label;
-        } else {
-          subBtn.textContent = '💬 Subtítulos (Off)';
+        subBtn.innerHTML = ctvIcon('subtitles', 16) + '<span class="ctv-btn-lbl"></span>';
+        var subLblEl = subBtn.querySelector('.ctv-btn-lbl');
+        if (subLblEl) {
+          subLblEl.textContent = (index >= 0 && currentSubTracks[index]) ? currentSubTracks[index].label : 'Subtítulos (Off)';
         }
+        subBtn.setAttribute('aria-label', 'Subtítulos');
       }
       if (persistPref !== false && typeof ctvSaveUserPrefs === 'function') {
         ctvSaveUserPrefs({ subtitlesEnabled: index >= 0 });
@@ -2386,7 +3579,7 @@
 
       modal.innerHTML =
         '<div class="dialog" style="max-width:420px">' +
-        '<div class="dialog-head"><h3>💬 Subtítulos</h3><button class="btn focusable" id="ctv-subs-close" tabindex="0">✕</button></div>' +
+        '<div class="dialog-head"><h3>Subtítulos</h3><button class="btn focusable" id="ctv-subs-close" tabindex="0" aria-label="Cerrar">' + ctvIcon('close', 16) + '</button></div>' +
         '<div class="server-list" id="ctv-subs-list" style="max-height:55vh;overflow-y:auto"></div>' +
         '</div>';
       document.body.appendChild(modal);
@@ -2395,27 +3588,35 @@
       var focusTarget = null;
 
       var offBtn = document.createElement('button');
-      offBtn.className = 'focusable';
+      var offActive = selectedSubIndex < 0;
+      offBtn.className = 'ctv-opt-row focusable' + (offActive ? ' active' : '');
       offBtn.tabIndex = 0;
-      offBtn.innerHTML = '<span>' + (selectedSubIndex < 0 ? '✔ ' : '') + 'Desactivados</span>';
+      offBtn.innerHTML =
+        '<span class="ctv-opt-main"><span class="ctv-opt-title">Desactivados</span><small class="ctv-opt-sub">Sin subtítulos en pantalla</small></span>' +
+        (offActive ? ctvIcon('check', 16) : '');
       offBtn.onclick = function () {
         applySubtitleSelection(-1);
         modal.remove();
       };
       listEl.appendChild(offBtn);
-      if (selectedSubIndex < 0) focusTarget = offBtn;
+      if (offActive) focusTarget = offBtn;
 
       currentSubTracks.forEach(function (tr, i) {
         var b = document.createElement('button');
-        b.className = 'focusable';
+        var trActive = selectedSubIndex === i;
+        b.className = 'ctv-opt-row focusable' + (trActive ? ' active' : '');
         b.tabIndex = 0;
-        b.innerHTML = '<span>' + (selectedSubIndex === i ? '✔ ' : '') + tr.label + '</span>';
+        b.innerHTML =
+          '<span class="ctv-opt-main"><span class="ctv-opt-title"></span></span>' +
+          (trActive ? ctvIcon('check', 16) : '');
+        var titleSpan = b.querySelector('.ctv-opt-title');
+        if (titleSpan) titleSpan.textContent = tr.label;
         b.onclick = function () {
           applySubtitleSelection(i);
           modal.remove();
         };
         listEl.appendChild(b);
-        if (selectedSubIndex === i) focusTarget = b;
+        if (trActive) focusTarget = b;
       });
 
       modal.querySelector('#ctv-subs-close').onclick = function () { modal.remove(); };
@@ -2426,7 +3627,7 @@
     }
 
     async function attachSubtitlesToVideo(tracks) {
-      cleanupSubs();
+      resetSubtitleTracksOnly();
       if (!Array.isArray(tracks) || !tracks.length) return;
       var video = document.getElementById('player-video');
       if (!video) return;
@@ -2528,7 +3729,8 @@
 
     function focusNextServerAfterClose() {
       var currentBtn = window.__ctvLastServerBtn;
-      if (typeof window.__ctvClosePlayer === 'function') window.__ctvClosePlayer();
+      if (typeof window.ctvForceClosePlayer === 'function') window.ctvForceClosePlayer();
+      else if (typeof window.__ctvClosePlayer === 'function') window.__ctvClosePlayer();
       setTimeout(function () {
         try {
           var scope = (currentBtn && currentBtn.closest && currentBtn.closest('.agenda-embeds, #detail-servers, #serie-servers-wrap, .server-list')) ||
@@ -2546,13 +3748,141 @@
       }, 90);
     }
 
-    function openInCleanIframe(rawUrl, title, onErrorCb) {
+    function urlsMatchOriginOrHost(failedUrl, activeUrl) {
+      if (!failedUrl || !activeUrl) return false;
+      var fStr = String(failedUrl).trim();
+      var aStr = String(activeUrl).trim();
+      if (!fStr || !aStr || aStr === 'about:blank') return false;
+      if (fStr === aStr) return true;
+      try {
+        var u1 = new URL(fStr);
+        var u2 = new URL(aStr);
+        if (u1.origin && u2.origin && u1.origin === u2.origin) return true;
+        var h1 = (u1.hostname || '').replace(/^www\./i, '').toLowerCase();
+        var h2 = (u2.hostname || '').replace(/^www\./i, '').toLowerCase();
+        if (h1 && h2 && (h1 === h2 || h1.endsWith('.' + h2) || h2.endsWith('.' + h1))) return true;
+      } catch (e) {}
+      return false;
+    }
+
+    function ensureNextServerButton() {
+      var pBar = document.getElementById('player-bar');
+      if (!pBar) return null;
+      var btn = document.getElementById('player-next-srv');
+      if (!btn) {
+        btn = document.createElement('button');
+        btn.id = 'player-next-srv';
+        btn.type = 'button';
+        btn.className = 'btn focusable hidden';
+        btn.tabIndex = 0;
+        btn.title = 'Cambiar al siguiente servidor';
+        btn.setAttribute('aria-label', 'Cambiar servidor');
+        btn.innerHTML = ctvIcon('server', 16) + '<span class="ctv-btn-lbl">Servidor</span>';
+        var qBtn = document.getElementById('player-quality');
+        var mBtn = document.getElementById('player-imgmode');
+        var subBtn = document.getElementById('player-subs');
+        var favBtn = document.getElementById('player-fav');
+        var anchor = (qBtn && qBtn.parentNode === pBar && qBtn) ||
+          (mBtn && mBtn.parentNode === pBar && mBtn) ||
+          (subBtn && subBtn.parentNode === pBar && subBtn) ||
+          (favBtn && favBtn.parentNode === pBar && favBtn) ||
+          null;
+        if (anchor) pBar.insertBefore(btn, anchor);
+        else pBar.appendChild(btn);
+      }
+      return btn;
+    }
+
+    function updateNextServerButton(isAgendaSports, rawUrl, title, slugOrType, resumeKey, failoverState) {
+      var btn = ensureNextServerButton();
+      if (!btn) return;
+      var isLiveTv = Boolean(window.__ctvCurrentItem && window.__ctvCurrentItem.kind === 'tv');
+      var list = Array.isArray(window.__ctvActiveServerList) ? window.__ctvActiveServerList : [];
+      if (isAgendaSports || isLiveTv || list.length <= 1) {
+        btn.classList.add('hidden');
+        btn.onclick = null;
+        return;
+      }
+      btn.classList.remove('hidden');
+      btn.onclick = function (e) {
+        if (e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        var srvList = Array.isArray(window.__ctvActiveServerList) ? window.__ctvActiveServerList : [];
+        if (srvList.length <= 1) return;
+        var nextSrv = failoverState && failoverState.tried ? findNextFallbackServer(failoverState.tried) : null;
+        var nextFs = failoverState;
+        if (!nextSrv) {
+          var curIdx = -1;
+          for (var i = 0; i < srvList.length; i++) {
+            if (srvList[i] && srvList[i].url === rawUrl) { curIdx = i; break; }
+          }
+          nextSrv = srvList[(curIdx + 1) % srvList.length];
+          if (nextSrv) {
+            nextFs = {
+              tried: new Set([nextSrv.url]),
+              hop: 0,
+              originalUrl: failoverState ? failoverState.originalUrl : rawUrl,
+              originalTitle: failoverState ? failoverState.originalTitle : String(title || 'Reproduciendo'),
+              originalServer: failoverState ? failoverState.originalServer : ''
+            };
+          }
+        } else if (nextFs) {
+          nextFs.tried.add(nextSrv.url);
+        }
+        if (!nextSrv || !nextSrv.url) return;
+        var nextTitle = nextSrv.baseTitle
+          ? (nextSrv.baseTitle + ' · ' + nextSrv.name)
+          : ((title || '').split(' · ')[0] + ' · ' + nextSrv.name);
+        if (typeof window.ctvShowToast === 'function') {
+          window.ctvShowToast('Cambiando a ' + nextSrv.name);
+        }
+        removeFailoverPill();
+        window.ctvPlaySmartEmbed(nextSrv.url, nextTitle, nextSrv.name, slugOrType, resumeKey, nextFs);
+      };
+    }
+
+    function showFailoverPill(nextServerName, onCancel) {
+      removeFailoverPill();
+      var modal = document.getElementById('player-modal');
+      if (!modal || modal.classList.contains('hidden')) return null;
+      var pill = document.createElement('div');
+      pill.id = 'ctv-failover-pill';
+      pill.setAttribute('role', 'status');
+      pill.innerHTML =
+        ctvIcon('server', 16) +
+        '<span class="ctv-fp-txt"></span>' +
+        '<button type="button" id="ctv-failover-cancel" class="btn focusable" tabindex="0">Cancelar</button>' +
+        '<button type="button" id="ctv-failover-back" class="btn ctv-btn-primary focusable" tabindex="0">Volver</button>';
+      var txtEl = pill.querySelector('.ctv-fp-txt');
+      if (txtEl) txtEl.textContent = 'Cambiando a ' + (nextServerName || 'servidor alternativo') + '...';
+      var cancelBtn = pill.querySelector('#ctv-failover-cancel');
+      var backBtn = pill.querySelector('#ctv-failover-back');
+      if (cancelBtn) {
+        cancelBtn.onclick = function (ev) {
+          if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+          if (typeof onCancel === 'function') onCancel();
+        };
+      }
+      if (backBtn) {
+        backBtn.onclick = function (ev) {
+          if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+          if (typeof window.ctvForceClosePlayer === 'function') window.ctvForceClosePlayer();
+        };
+      }
+      modal.appendChild(pill);
+      return pill;
+    }
+
+    function openInCleanIframe(rawUrl, title, onErrorCb, sessionId, keepFailoverPill) {
+      var activeSid = typeof sessionId === 'number' ? sessionId : (window.__ctvPlaySessionId || 0);
+      if (typeof sessionId === 'number' && window.__ctvPlaySessionId !== activeSid) return;
       cleanupActivePlayback();
       cleanupSubs();
       removeAgendaStatusOverlay();
-      if (typeof window.__ctvOpenModal === 'function') {
-        window.__ctvOpenModal(title);
-      }
+      if (!keepFailoverPill) removeFailoverPill();
+      ctvOpenModalSafe(title);
       var mBtnIf = ensureImageModeButton();
       if (mBtnIf) {
         applyImageMode(null, false);
@@ -2569,21 +3899,47 @@
         try { f.removeAttribute('srcdoc'); } catch (e) {}
         f.classList.remove('hidden');
         var loaderDone = false;
+        var errorFired = false;
+        var iframeLoadWatchdog = null;
         var doneLoader = function () {
           if (loaderDone) return;
           loaderDone = true;
           removePlayerLoader();
         };
-        var onLoad = function () { doneLoader(); };
-        var onErr = function () {
+        var triggerIframeErr = function (errReason) {
+          if (errorFired || window.__ctvPlaySessionId !== activeSid) return;
+          errorFired = true;
+          if (iframeLoadWatchdog) { clearTimeout(iframeLoadWatchdog); iframeLoadWatchdog = null; }
+          window.__ctvActiveSubframeErrorCb = null;
           doneLoader();
-          if (typeof onErrorCb === 'function') onErrorCb();
+          if (typeof onErrorCb === 'function') onErrorCb(errReason || 'iframe-error');
+        };
+        var onLoad = function () {
+          if (iframeLoadWatchdog) { clearTimeout(iframeLoadWatchdog); iframeLoadWatchdog = null; }
+          doneLoader();
+          if (!errorFired && window.__ctvPlaySessionId === activeSid) {
+            removeFailoverPill();
+          }
+        };
+        var onErr = function () {
+          triggerIframeErr('iframe-error');
         };
         f.addEventListener('load', onLoad, { once: true });
         f.addEventListener('error', onErr, { once: true });
         var safeHideTimer = setTimeout(doneLoader, 5000);
+        iframeLoadWatchdog = setTimeout(function () {
+          triggerIframeErr('iframe-timeout');
+        }, 12500);
+        window.__ctvActiveSubframeErrorCb = function (payload) {
+          var failedUrl = payload && payload.url ? String(payload.url) : '';
+          if (urlsMatchOriginOrHost(failedUrl, rawUrl)) {
+            triggerIframeErr('subframe-net-error');
+          }
+        };
         registerPlaybackCleanup(function () {
           clearTimeout(safeHideTimer);
+          if (iframeLoadWatchdog) { clearTimeout(iframeLoadWatchdog); iframeLoadWatchdog = null; }
+          window.__ctvActiveSubframeErrorCb = null;
           try { f.removeEventListener('load', onLoad); } catch (e) {}
           try { f.removeEventListener('error', onErr); } catch (e) {}
         });
@@ -2605,32 +3961,31 @@
       removePlayerLoader();
       cleanupSubs();
       removeAgendaStatusOverlay();
+      removeFailoverPill();
       var modal = document.getElementById('player-modal');
       if (!modal) return;
-      if (typeof window.__ctvOpenModal === 'function') {
-        window.__ctvOpenModal(title || 'Reproducción');
-      }
+      ctvOpenModalSafe(title || 'Reproducción');
       var pf = document.getElementById('player-frame');
       var pv = document.getElementById('player-video');
-      if (pf) { pf.classList.add('hidden'); pf.src = ''; }
+      if (pf) { pf.classList.add('hidden'); pf.src = 'about:blank'; }
       if (pv) { try { pv.pause(); } catch (e) {} pv.classList.add('hidden'); }
 
       var isSports = opts.isSports !== false;
-      var icon = opts.icon || (isSports ? '⚽' : '📡');
+      var iconHtml = opts.iconHtml || ctvIcon(isSports ? 'tv' : 'warning', 34);
       var heading = opts.heading || (isSports ? 'Señal temporalmente no disponible' : 'No se pudo cargar este servidor');
-      var backLabel = opts.backLabel || (isSports ? '◀ Volver a la Agenda' : '◀ Volver');
+      var backLabel = opts.backLabel || (isSports ? 'Volver a la agenda' : 'Volver');
       var showSwitch = opts.showSwitch !== false;
 
       var box = document.createElement('div');
       box.id = 'ctv-agenda-status';
       box.innerHTML =
-        '<div style="font-size:2.6rem">' + icon + '</div>' +
+        '<div style="color:var(--ctv-muted)">' + iconHtml + '</div>' +
         '<h3 style="font-size:1.2rem;font-weight:800;max-width:460px;margin:0">' + heading + '</h3>' +
-        '<p style="font-size:.92rem;color:#b8c0d4;max-width:460px;line-height:1.45;margin:0">' + (subtitle || 'El servidor está saturado o no respondió a tiempo. Puedes reintentar o elegir otro servidor.') + '</p>' +
+        '<p style="font-size:.92rem;color:var(--ctv-muted);max-width:460px;line-height:1.45;margin:0">' + (subtitle || 'El servidor está saturado o no respondió a tiempo. Puedes reintentar o elegir otro servidor.') + '</p>' +
         '<div class="ctv-as-actions">' +
-        '<button id="ctv-agenda-retry" class="btn focusable" tabindex="0" style="background:var(--red,#b04cf2);border-color:#fff;color:#fff;font-weight:700;padding:10px 20px">🔄 Reintentar</button>' +
-        (showSwitch ? '<button id="ctv-agenda-switch" class="btn focusable" tabindex="0" style="padding:10px 20px">🔀 Cambiar servidor</button>' : '') +
-        '<button id="ctv-agenda-back" class="btn focusable" tabindex="0" style="padding:10px 20px">' + backLabel + '</button>' +
+        '<button id="ctv-agenda-retry" class="btn ctv-btn-primary focusable" tabindex="0" style="font-weight:700;padding:10px 20px">' + ctvIcon('restart', 16) + '<span>Reintentar</span></button>' +
+        (showSwitch ? '<button id="ctv-agenda-switch" class="btn focusable" tabindex="0" style="padding:10px 20px">' + ctvIcon('server', 16) + '<span>Cambiar servidor</span></button>' : '') +
+        '<button id="ctv-agenda-back" class="btn focusable" tabindex="0" style="padding:10px 20px">' + ctvIcon('back', 16) + '<span>' + backLabel + '</span></button>' +
         '</div>';
       modal.appendChild(box);
 
@@ -2658,11 +4013,13 @@
       if (backBtn) {
         backBtn.onclick = function (ev) {
           ev.stopPropagation();
-          if (typeof window.__ctvClosePlayer === 'function') window.__ctvClosePlayer();
+          if (typeof window.ctvForceClosePlayer === 'function') window.ctvForceClosePlayer();
+          else if (typeof window.__ctvClosePlayer === 'function') window.__ctvClosePlayer();
         };
       }
-      var pBar = document.getElementById('player-bar');
-      if (pBar) { pBar.classList.remove('hidden'); pBar.style.opacity = '1'; }
+      if (typeof window.ctvRevealPlayerBar === 'function') {
+        window.ctvRevealPlayerBar();
+      }
       setTimeout(function () {
         if (retryBtn && retryBtn.focus) retryBtn.focus();
       }, 40);
@@ -2681,7 +4038,328 @@
       openInCleanIframe(String(h || ''), String(i || ''));
     };
 
+    function resolveWatchMediaMeta(title, slugOrType, resumeKey, isAgendaSports, serverName) {
+      if (isAgendaSports || slugOrType === 'agenda-deportiva') return null;
+      if (window.__ctvCurrentItem && window.__ctvCurrentItem.kind === 'tv') return null;
+      var slugFromArg = (slugOrType && typeof slugOrType === 'string' && slugOrType !== 'agenda-deportiva') ? slugOrType.trim() : '';
+      var slugFromRk = resumeKey ? String(resumeKey).split('|')[0].trim() : '';
+      var slugFromCur = (window.__ctvCurrentItem && window.__ctvCurrentItem.slug) ? String(window.__ctvCurrentItem.slug).trim() : '';
+      var slug = slugFromArg || slugFromRk || slugFromCur;
+      if (!slug) return null;
+
+      var rkStr = String(resumeKey || '');
+      var titleStr = String(title || '');
+      var epMatch = rkStr.match(/\|(t\d+e\d+)(?:\||$)/i);
+      var sNum = 0;
+      var eNum = 0;
+      var isEp = false;
+      if (epMatch) {
+        var partsMatch = epMatch[1].match(/^t(\d+)e(\d+)$/i);
+        if (partsMatch) {
+          sNum = parseInt(partsMatch[1], 10);
+          eNum = parseInt(partsMatch[2], 10);
+          isEp = true;
+        }
+      } else {
+        var tMatch = titleStr.match(/\bT(\d+)\s*E(\d+)\b/i);
+        if (tMatch) {
+          sNum = parseInt(tMatch[1], 10);
+          eNum = parseInt(tMatch[2], 10);
+          isEp = true;
+        }
+      }
+
+      var mediaKey = isEp ? ('serie:' + slug + ':t' + sNum + 'e' + eNum) : ('movie:' + slug);
+      var type = isEp ? 'serie' : 'movie';
+      var epLabel = isEp ? ('T' + sNum + 'E' + eNum) : '';
+
+      var curItem = (window.__ctvCurrentItem && (!window.__ctvCurrentItem.slug || window.__ctvCurrentItem.slug === slug)) ? window.__ctvCurrentItem : null;
+      var catItem = (window.__ctvCatalog && window.__ctvCatalog[slug]) || null;
+
+      var cleanTitle = titleStr.replace(/\s*·\s*Conectando…\s*$/i, '').trim();
+      if (serverName) {
+        var srvSuffix = ' · ' + String(serverName).trim();
+        if (cleanTitle.length > srvSuffix.length && cleanTitle.slice(-srvSuffix.length).toLowerCase() === srvSuffix.toLowerCase()) {
+          cleanTitle = cleanTitle.slice(0, -srvSuffix.length).trim();
+        }
+      }
+      if (!cleanTitle && curItem && curItem.title) cleanTitle = String(curItem.title).trim();
+      if (!cleanTitle && catItem) cleanTitle = String(catItem.titulo || catItem.nombre || catItem.title || '').trim();
+
+      var rawPoster = (curItem && curItem.poster) || (catItem && (catItem.img_frente || catItem.imagen || catItem.poster)) || '';
+      var poster = rawPoster && typeof window.ctvNormPosterUrl === 'function' ? window.ctvNormPosterUrl(rawPoster) : String(rawPoster || '');
+
+      return {
+        mediaKey: mediaKey,
+        slug: slug,
+        type: type,
+        ep: epLabel,
+        title: cleanTitle,
+        poster: poster
+      };
+    }
+
+    function showResumePrompt(videoEl, mediaMeta, saved, sessionAtBind, failoverState) {
+      removeResumePrompt();
+      if (window.__ctvPlaySessionId !== sessionAtBind) return;
+      var modal = document.getElementById('player-modal');
+      if (!modal || modal.classList.contains('hidden')) return;
+      var label = typeof window.ctvFormatWatchTime === 'function' ? window.ctvFormatWatchTime(saved.t) : (Math.floor(saved.t) + 's');
+
+      var prompt = document.createElement('div');
+      prompt.id = 'ctv-resume-prompt';
+
+      var txt = document.createElement('span');
+      txt.style.cssText = 'font-weight:600;color:var(--ctv-text)';
+      var epLabel = (mediaMeta && mediaMeta.ep) || saved.ep || '';
+      txt.textContent = 'Continuar' + (epLabel ? (' ' + epLabel) : '') + ' en ' + label;
+
+      var yesBtn = document.createElement('button');
+      yesBtn.id = 'ctv-resume-yes';
+      yesBtn.type = 'button';
+      yesBtn.className = 'btn ctv-btn-primary focusable';
+      yesBtn.tabIndex = 0;
+      yesBtn.innerHTML = ctvIcon('play', 14) + '<span>Reanudar</span>';
+
+      var noBtn = document.createElement('button');
+      noBtn.id = 'ctv-resume-no';
+      noBtn.type = 'button';
+      noBtn.className = 'btn focusable';
+      noBtn.tabIndex = 0;
+      noBtn.innerHTML = '<span>Desde el inicio</span>';
+
+      yesBtn.onclick = function (ev) {
+        if (ev) ev.stopPropagation();
+        if (failoverState) failoverState.__resumePromptHandled = true;
+        removeResumePrompt();
+        try {
+          videoEl.currentTime = saved.t;
+          videoEl.play().catch(function () {});
+        } catch (e) {}
+        if (typeof window.ctvShowToast === 'function') {
+          window.ctvShowToast('Reanudado en ' + label);
+        }
+        try { videoEl.focus(); } catch (e) {}
+      };
+
+      noBtn.onclick = function (ev) {
+        if (ev) ev.stopPropagation();
+        if (failoverState) failoverState.__resumePromptHandled = true;
+        removeResumePrompt();
+        if (typeof window.ctvRemoveWatchProgressEntry === 'function') {
+          window.ctvRemoveWatchProgressEntry(mediaMeta.mediaKey);
+        }
+        if (typeof window.ctvUpdateFavButtonsUI === 'function') {
+          window.ctvUpdateFavButtonsUI();
+        }
+        try {
+          videoEl.currentTime = 0;
+          videoEl.play().catch(function () {});
+        } catch (e) {}
+        try { videoEl.focus(); } catch (e) {}
+      };
+
+      prompt.appendChild(txt);
+      prompt.appendChild(yesBtn);
+      prompt.appendChild(noBtn);
+      modal.appendChild(prompt);
+
+      if (!document.getElementById('ctv-quality-modal') && !document.getElementById('ctv-subs-modal') && !document.getElementById('ctv-imgmode-modal')) {
+        setTimeout(function () {
+          try {
+            if (prompt.isConnected && !document.getElementById('ctv-quality-modal') && !document.getElementById('ctv-subs-modal') && !document.getElementById('ctv-imgmode-modal')) {
+              yesBtn.focus({ preventScroll: true });
+            }
+          } catch (e) { try { yesBtn.focus(); } catch (x) {} }
+        }, 60);
+      }
+
+      window.__ctvResumePromptTimer = setTimeout(function () {
+        if (failoverState) failoverState.__resumePromptHandled = true;
+        var hadFocus = prompt.contains(document.activeElement);
+        removeResumePrompt();
+        if (hadFocus && videoEl && videoEl.isConnected) {
+          try { videoEl.focus({ preventScroll: true }); } catch (e) {}
+        }
+      }, 8500);
+    }
+
+    function bindWatchProgressTracker(videoEl, mediaMeta, failoverState) {
+      if (!videoEl || !mediaMeta || !mediaMeta.mediaKey) return;
+      var sessionAtBind = window.__ctvPlaySessionId;
+      var lastSavedTs = 0;
+      var lastKnownTime = 0;
+      var lastKnownDuration = 0;
+      var promptShown = false;
+      var cleaned = false;
+
+      function updateKnownPosition() {
+        var curT = Number(videoEl.currentTime);
+        var curD = Number(videoEl.duration);
+        if (isFinite(curD) && curD >= 60 && isFinite(curT) && curT >= 0) {
+          lastKnownTime = curT;
+          lastKnownDuration = curD;
+        }
+      }
+
+      function flushProgress(forceImmediate) {
+        if (cleaned) return;
+        updateKnownPosition();
+        var t = lastKnownTime;
+        var d = lastKnownDuration;
+        if (!isFinite(d) || d < 60 || !isFinite(t)) return;
+        var ratio = t / d;
+        if (ratio >= 0.93) {
+          var curMap = typeof window.ctvGetWatchProgressMap === 'function' ? window.ctvGetWatchProgressMap() : {};
+          if (curMap && curMap[mediaMeta.mediaKey]) {
+            if (typeof window.ctvRemoveWatchProgressEntry === 'function') {
+              window.ctvRemoveWatchProgressEntry(mediaMeta.mediaKey);
+            }
+            if (typeof window.ctvUpdateFavButtonsUI === 'function') {
+              window.ctvUpdateFavButtonsUI();
+            }
+          }
+          return;
+        }
+        if (t >= 15) {
+          var now = Date.now();
+          if (!forceImmediate && (now - lastSavedTs) < 12000) return;
+          lastSavedTs = now;
+          if (typeof window.ctvSaveWatchProgressEntry === 'function') {
+            window.ctvSaveWatchProgressEntry(mediaMeta.mediaKey, {
+              t: t,
+              d: d,
+              title: mediaMeta.title,
+              poster: mediaMeta.poster,
+              type: mediaMeta.type,
+              slug: mediaMeta.slug,
+              ep: mediaMeta.ep,
+              updatedAt: now
+            });
+          }
+          if (typeof window.ctvUpdateFavButtonsUI === 'function') {
+            window.ctvUpdateFavButtonsUI();
+          }
+        }
+      }
+
+      function maybeShowResumePrompt() {
+        if (promptShown || cleaned || window.__ctvPlaySessionId !== sessionAtBind) return;
+        if (failoverState && failoverState.__resumePromptHandled) return;
+        var d = Number(videoEl.duration);
+        if (!isFinite(d) || d < 60) return;
+        promptShown = true;
+        var map = typeof window.ctvGetWatchProgressMap === 'function' ? window.ctvGetWatchProgressMap() : {};
+        var saved = map[mediaMeta.mediaKey];
+        if (!saved || typeof saved.t !== 'number' || saved.t < 15) return;
+        if (saved.d && (saved.t / saved.d) >= 0.93) return;
+        if ((saved.t / d) >= 0.93) return;
+        showResumePrompt(videoEl, mediaMeta, saved, sessionAtBind, failoverState);
+      }
+
+      var onMetaOrPlay = function () {
+        updateKnownPosition();
+        maybeShowResumePrompt();
+      };
+      var onTimeUpdate = function () {
+        flushProgress(false);
+      };
+      var onPause = function () {
+        flushProgress(true);
+      };
+      var onEnded = function () {
+        updateKnownPosition();
+        if (lastKnownDuration >= 60) {
+          lastKnownTime = lastKnownDuration;
+        }
+        flushProgress(true);
+      };
+      var onPageLeave = function () {
+        flushProgress(true);
+      };
+
+      videoEl.addEventListener('loadedmetadata', onMetaOrPlay);
+      videoEl.addEventListener('playing', onMetaOrPlay);
+      videoEl.addEventListener('timeupdate', onTimeUpdate);
+      videoEl.addEventListener('pause', onPause);
+      videoEl.addEventListener('ended', onEnded);
+      window.addEventListener('pagehide', onPageLeave);
+      window.addEventListener('beforeunload', onPageLeave);
+
+      if (videoEl.readyState >= 1) {
+        onMetaOrPlay();
+      }
+
+      registerPlaybackCleanup(function () {
+        flushProgress(true);
+        cleaned = true;
+        removeResumePrompt();
+        try { videoEl.removeEventListener('loadedmetadata', onMetaOrPlay); } catch (e) {}
+        try { videoEl.removeEventListener('playing', onMetaOrPlay); } catch (e) {}
+        try { videoEl.removeEventListener('timeupdate', onTimeUpdate); } catch (e) {}
+        try { videoEl.removeEventListener('pause', onPause); } catch (e) {}
+        try { videoEl.removeEventListener('ended', onEnded); } catch (e) {}
+        try { window.removeEventListener('pagehide', onPageLeave); } catch (e) {}
+        try { window.removeEventListener('beforeunload', onPageLeave); } catch (e) {}
+      });
+    }
+
+    function attachVideoPlaybackGuards(videoEl, opts) {
+      var started = false;
+      var stallTimer = null;
+      var isDesktop = ctvIsDesktopProxyAvailable();
+      var stallMs = isDesktop ? 9500 : 13000;
+      var clearStall = function () {
+        if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+      };
+      var onPlaying = function () {
+        started = true;
+        clearStall();
+        try { videoEl.removeEventListener('playing', onPlaying); } catch (e) {}
+        try { videoEl.removeEventListener('loadeddata', onPlaying); } catch (e) {}
+        try { videoEl.removeEventListener('timeupdate', onTimeUpdate); } catch (e) {}
+        try { videoEl.removeEventListener('seeking', onUserInteract); } catch (e) {}
+        try { videoEl.removeEventListener('pause', onUserInteract); } catch (e) {}
+        try { videoEl.removeEventListener('pointerdown', onUserInteract); } catch (e) {}
+        if (typeof opts.onSuccess === 'function') opts.onSuccess();
+      };
+      var onTimeUpdate = function () {
+        if ((videoEl.currentTime || 0) > 0) onPlaying();
+      };
+      var onUserInteract = function () {
+        clearStall();
+      };
+      videoEl.addEventListener('playing', onPlaying);
+      videoEl.addEventListener('loadeddata', onPlaying);
+      videoEl.addEventListener('timeupdate', onTimeUpdate);
+      videoEl.addEventListener('seeking', onUserInteract);
+      videoEl.addEventListener('pause', onUserInteract);
+      videoEl.addEventListener('pointerdown', onUserInteract, { passive: true });
+      videoEl.onerror = function () {
+        videoEl.onerror = null;
+        if (window.__ctvPlaySessionId !== opts.sessionId) return;
+        clearStall();
+        if (typeof opts.onError === 'function') opts.onError();
+      };
+      stallTimer = setTimeout(function () {
+        if (window.__ctvPlaySessionId !== opts.sessionId) return;
+        if (!started && !opts.isFallbackDone() && videoEl.readyState === 0 && opts.modal && !opts.modal.classList.contains('hidden')) {
+          if (typeof opts.onStall === 'function') opts.onStall();
+        }
+      }, stallMs);
+      registerPlaybackCleanup(function () {
+        clearStall();
+        try { videoEl.removeEventListener('playing', onPlaying); } catch (e) {}
+        try { videoEl.removeEventListener('loadeddata', onPlaying); } catch (e) {}
+        try { videoEl.removeEventListener('timeupdate', onTimeUpdate); } catch (e) {}
+        try { videoEl.removeEventListener('seeking', onUserInteract); } catch (e) {}
+        try { videoEl.removeEventListener('pause', onUserInteract); } catch (e) {}
+        try { videoEl.removeEventListener('pointerdown', onUserInteract); } catch (e) {}
+      });
+    }
+
     window.ctvPlaySmartEmbed = function (url, title, serverName, slugOrType, resumeKey, failoverState) {
+      if (failoverState && failoverState.cancelled) return false;
       cleanupActivePlayback();
       window.__ctvPlaySessionId = (window.__ctvPlaySessionId || 0) + 1;
       var currentPlaySession = window.__ctvPlaySessionId;
@@ -2693,14 +4371,18 @@
         slugOrType === 'agenda-deportiva' ||
         /tvf90\.com|tv-90\.com|eventos\.html\?r=|ftlly\.com|streamtp|pelotalibre|la12hd|la14hd|futbollibre/i.test(rawUrl)
       );
+      var watchMeta = resolveWatchMediaMeta(title, slugOrType, resumeKey, isAgendaSports, serverName);
 
       if (!failoverState) {
         if (document.activeElement && document.activeElement !== document.body) {
           window.__ctvLastServerBtn = document.activeElement;
         }
+        removeFailoverPill();
         failoverState = {
           tried: new Set([rawUrl]),
           hop: 0,
+          cancelled: false,
+          jumpTimer: null,
           originalUrl: rawUrl,
           originalTitle: String(title || 'Reproduciendo'),
           originalServer: String(serverName || '')
@@ -2708,6 +4390,8 @@
       } else {
         failoverState.tried.add(rawUrl);
       }
+      failoverState.sessionId = currentPlaySession;
+      window.__ctvActiveFailoverState = failoverState;
 
       removeAgendaStatusOverlay();
       var pFavBtn = document.getElementById('player-fav');
@@ -2726,6 +4410,7 @@
 
       function markServerSuccess() {
         removePlayerLoader();
+        removeFailoverPill();
         if (!isAgendaSports && serverName && typeof ctvSaveUserPrefs === 'function') {
           ctvSaveUserPrefs({ preferredServer: String(serverName) });
         }
@@ -2733,6 +4418,7 @@
 
       function attemptAutoFailoverOrError(reason) {
         if (window.__ctvPlaySessionId !== currentPlaySession) return;
+        if (failoverState.cancelled) return;
         var modal = document.getElementById('player-modal');
         if (!modal || modal.classList.contains('hidden')) return;
 
@@ -2742,7 +4428,7 @@
             title || 'Agenda deportiva',
             'El partido aún no comienza, ya terminó o el servidor está ocupado. Puedes reintentar o elegir otra opción (OP2 / OP3 / HD).',
             function () {
-              window.ctvPlaySmartEmbed(failoverState.originalUrl, failoverState.originalTitle, failoverState.originalServer, slugOrType);
+              window.ctvPlaySmartEmbed(failoverState.originalUrl, failoverState.originalTitle, failoverState.originalServer, slugOrType, resumeKey);
             },
             { isSports: true, showSwitch: true }
           );
@@ -2752,22 +4438,50 @@
         // Auto-Failover Inteligente para películas/series (hasta 3 saltos automáticos)
         var nextSrv = failoverState.hop < 3 ? findNextFallbackServer(failoverState.tried) : null;
         if (nextSrv) {
+          if (failoverState.jumpingSession === currentPlaySession) return;
+          failoverState.jumpingSession = currentPlaySession;
           failoverState.hop += 1;
           failoverState.tried.add(nextSrv.url);
-          var curLabel = serverName || 'El servidor actual';
+          cleanupActivePlayback();
           var nextTitle = nextSrv.baseTitle ? (nextSrv.baseTitle + ' · ' + nextSrv.name) : ((title || '').split(' · ')[0] + ' · ' + nextSrv.name);
-          if (typeof window.ctvShowToast === 'function') {
-            window.ctvShowToast('⚡ ' + curLabel + ' no respondió · cambiando a ' + nextSrv.name + '…');
-          }
-          window.ctvPlaySmartEmbed(nextSrv.url, nextTitle, nextSrv.name, slugOrType, resumeKey, failoverState);
+          showFailoverPill(nextSrv.name, function () {
+            failoverState.cancelled = true;
+            if (failoverState.jumpTimer) {
+              clearTimeout(failoverState.jumpTimer);
+              failoverState.jumpTimer = null;
+            }
+            window.__ctvPlaySessionId = (window.__ctvPlaySessionId || 0) + 1;
+            removeFailoverPill();
+            showAgendaStatusOverlay(
+              failoverState.originalTitle || title || 'Reproducción',
+              'Cambio automático cancelado. Puedes reintentar o elegir otro servidor manualmente.',
+              function () {
+                window.ctvPlaySmartEmbed(failoverState.originalUrl, failoverState.originalTitle, failoverState.originalServer, slugOrType, resumeKey);
+              },
+              { isSports: false, showSwitch: true }
+            );
+          });
+          failoverState.jumpTimer = setTimeout(function () {
+            failoverState.jumpTimer = null;
+            if (window.__ctvPlaySessionId !== currentPlaySession || failoverState.cancelled) return;
+            window.ctvPlaySmartEmbed(nextSrv.url, nextTitle, nextSrv.name, slugOrType, resumeKey, failoverState);
+          }, 900);
+          registerPlaybackCleanup(function () {
+            if (failoverState.jumpTimer) {
+              clearTimeout(failoverState.jumpTimer);
+              failoverState.jumpTimer = null;
+            }
+          });
           return;
         }
 
         // Si era servidor único sin alternativas probadas en iframe todavía, intentar iframe limpio sin sandbox antes de mostrar error
-        if (failoverState.hop === 0 && reason !== 'iframe-error' && isExtractableServer(rawUrl)) {
-          openInCleanIframe(rawUrl, title, function () {
-            attemptAutoFailoverOrError('iframe-error');
-          });
+        if (failoverState.hop === 0 && reason !== 'iframe-error' && reason !== 'subframe-net-error' && reason !== 'iframe-timeout' && isExtractableServer(rawUrl) && !failoverState.__triedDirectIframe) {
+          failoverState.__triedDirectIframe = true;
+          openInCleanIframe(rawUrl, title, function (errReason) {
+            attemptAutoFailoverOrError(errReason || 'iframe-error');
+          }, currentPlaySession, false);
+          updateNextServerButton(isAgendaSports, rawUrl, title, slugOrType, resumeKey, failoverState);
           return;
         }
 
@@ -2783,18 +4497,19 @@
 
       // Si es un servidor multi-embed externo, abrir en #player-frame con control dinámico de sandbox
       if (!isExtractableServer(rawUrl)) {
-        openInCleanIframe(rawUrl, title, function () {
-          attemptAutoFailoverOrError('iframe-error');
-        });
+        openInCleanIframe(rawUrl, title, function (errReason) {
+          attemptAutoFailoverOrError(errReason || 'iframe-error');
+        }, currentPlaySession, failoverState.hop > 0);
+        updateNextServerButton(isAgendaSports, rawUrl, title, slugOrType, resumeKey, failoverState);
         if (!isAgendaSports && serverName && typeof ctvSaveUserPrefs === 'function') {
           ctvSaveUserPrefs({ preferredServer: String(serverName) });
         }
         return true;
       }
 
-      if (typeof window.__ctvOpenModal === 'function') {
-        window.__ctvOpenModal((title || 'Reproduciendo') + ' · Conectando…');
-      }
+      if (window.__ctvPlaySessionId !== currentPlaySession) return false;
+      ctvOpenModalSafe((title || 'Reproduciendo') + ' · Conectando…');
+      updateNextServerButton(isAgendaSports, rawUrl, title, slugOrType, resumeKey, failoverState);
       var mBtnPlay = ensureImageModeButton();
       if (mBtnPlay) {
         applyImageMode(null, false);
@@ -2814,14 +4529,14 @@
 
       function fallbackToNext(reason) {
         if (window.__ctvPlaySessionId !== currentPlaySession) return;
-        if (didFallback) return;
+        if (didFallback || failoverState.cancelled) return;
         didFallback = true;
         attemptAutoFailoverOrError(reason);
       }
 
       function playResolvedResult(res) {
         if (window.__ctvPlaySessionId !== currentPlaySession) return;
-        if (didFallback) return;
+        if (didFallback || failoverState.cancelled) return;
         var modal = document.getElementById('player-modal');
         if (!modal || modal.classList.contains('hidden')) return;
 
@@ -2830,7 +4545,8 @@
           if (window.AndroidBridge && typeof window.AndroidBridge.playChannelFull === 'function') {
             try {
               removePlayerLoader();
-              if (typeof window.__ctvClosePlayer === 'function') window.__ctvClosePlayer();
+              if (typeof window.ctvForceClosePlayer === 'function') window.ctvForceClosePlayer();
+              else if (typeof window.__ctvClosePlayer === 'function') window.__ctvClosePlayer();
               window.AndroidBridge.playChannelFull(title || 'Agenda Deportiva', res.url, '', res.keyId || '', res.key || '', '');
               return;
             } catch (e) {}
@@ -2839,6 +4555,7 @@
             try {
               window.__ctvPlayDash(res.url, res.keyId || '', res.key || '', title || 'Agenda Deportiva');
               markServerSuccess();
+              updateNextServerButton(isAgendaSports, rawUrl, title, slugOrType, resumeKey, failoverState);
               if (!isAgendaSports && typeof window.ctvUpdateFavButtonsUI === 'function') window.ctvUpdateFavButtonsUI();
               return;
             } catch (e) {}
@@ -2852,15 +4569,19 @@
           if ((isAgendaSports || res.isLive) && window.AndroidBridge && typeof window.AndroidBridge.playChannelFull === 'function') {
             try {
               removePlayerLoader();
-              if (typeof window.__ctvClosePlayer === 'function') window.__ctvClosePlayer();
+              if (typeof window.ctvForceClosePlayer === 'function') window.ctvForceClosePlayer();
+              else if (typeof window.__ctvClosePlayer === 'function') window.__ctvClosePlayer();
               window.AndroidBridge.playChannelFull(title || 'Agenda Deportiva', '', res.url, '', '', '');
               return;
             } catch (e) {}
           }
 
           if (typeof window.__ctvPlayHls === 'function') {
+            var hlsFailureHandled = false;
             var handleHlsFailure = function () {
               if (window.__ctvPlaySessionId !== currentPlaySession) return;
+              if (hlsFailureHandled || didFallback || failoverState.cancelled) return;
+              hlsFailureHandled = true;
               // En Agenda Deportiva reintentar 1 vez para obtener otro nodo ftlly.com disponible
               if (isAgendaSports && agendaRetries < 1) {
                 agendaRetries++;
@@ -2878,37 +4599,20 @@
               fallbackToNext('hls-error');
             };
 
+            window.__ctvActiveHlsFatalCb = handleHlsFailure;
             window.__ctvPlayHls(res.url, title, handleHlsFailure);
+            updateNextServerButton(isAgendaSports, rawUrl, title, slugOrType, resumeKey, failoverState);
             if (!isAgendaSports && typeof window.ctvUpdateFavButtonsUI === 'function') window.ctvUpdateFavButtonsUI();
             var vHls = document.getElementById('player-video');
             if (vHls) {
-              var started = false;
-              var stallTimer = null;
-              var onPlaying = function () {
-                started = true;
-                if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
-                vHls.removeEventListener('playing', onPlaying);
-                vHls.removeEventListener('loadeddata', onPlaying);
-                markServerSuccess();
-              };
-              vHls.addEventListener('playing', onPlaying);
-              vHls.addEventListener('loadeddata', onPlaying);
-              vHls.onerror = function () {
-                vHls.onerror = null;
-                if (window.__ctvPlaySessionId !== currentPlaySession) return;
-                if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
-                handleHlsFailure();
-              };
-              stallTimer = setTimeout(function () {
-                if (window.__ctvPlaySessionId !== currentPlaySession) return;
-                if (!started && !didFallback && vHls.readyState === 0 && !modal.classList.contains('hidden')) {
-                  handleHlsFailure();
-                }
-              }, 8500);
-              registerPlaybackCleanup(function () {
-                if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
-                try { vHls.removeEventListener('playing', onPlaying); } catch (e) {}
-                try { vHls.removeEventListener('loadeddata', onPlaying); } catch (e) {}
+              if (watchMeta) bindWatchProgressTracker(vHls, watchMeta, failoverState);
+              attachVideoPlaybackGuards(vHls, {
+                sessionId: currentPlaySession,
+                modal: modal,
+                isFallbackDone: function () { return didFallback; },
+                onSuccess: markServerSuccess,
+                onError: handleHlsFailure,
+                onStall: handleHlsFailure
               });
             } else {
               removePlayerLoader();
@@ -2920,38 +4624,21 @@
 
         // 3. MP4 directo
         if (res && res.type === 'mp4' && res.url) {
-          if (typeof window.__ctvOpenModal === 'function') window.__ctvOpenModal(title);
+          if (window.__ctvPlaySessionId !== currentPlaySession) return;
+          ctvOpenModalSafe(title);
+          updateNextServerButton(isAgendaSports, rawUrl, title, slugOrType, resumeKey, failoverState);
           if (!isAgendaSports && typeof window.ctvUpdateFavButtonsUI === 'function') window.ctvUpdateFavButtonsUI();
           var v = document.getElementById('player-video');
           if (v) {
             v.classList.remove('hidden');
-            var mp4Started = false;
-            var mp4Stall = null;
-            var onMp4Play = function () {
-              mp4Started = true;
-              if (mp4Stall) { clearTimeout(mp4Stall); mp4Stall = null; }
-              v.removeEventListener('playing', onMp4Play);
-              v.removeEventListener('loadeddata', onMp4Play);
-              markServerSuccess();
-            };
-            v.addEventListener('playing', onMp4Play);
-            v.addEventListener('loadeddata', onMp4Play);
-            v.onerror = function () {
-              v.onerror = null;
-              if (window.__ctvPlaySessionId !== currentPlaySession) return;
-              if (mp4Stall) { clearTimeout(mp4Stall); mp4Stall = null; }
-              fallbackToNext('mp4-error');
-            };
-            mp4Stall = setTimeout(function () {
-              if (window.__ctvPlaySessionId !== currentPlaySession) return;
-              if (!mp4Started && !didFallback && v.readyState === 0 && !modal.classList.contains('hidden')) {
-                fallbackToNext('mp4-stall');
-              }
-            }, 8500);
-            registerPlaybackCleanup(function () {
-              if (mp4Stall) { clearTimeout(mp4Stall); mp4Stall = null; }
-              try { v.removeEventListener('playing', onMp4Play); } catch (e) {}
-              try { v.removeEventListener('loadeddata', onMp4Play); } catch (e) {}
+            if (watchMeta) bindWatchProgressTracker(v, watchMeta, failoverState);
+            attachVideoPlaybackGuards(v, {
+              sessionId: currentPlaySession,
+              modal: modal,
+              isFallbackDone: function () { return didFallback; },
+              onSuccess: markServerSuccess,
+              onError: function () { fallbackToNext('mp4-error'); },
+              onStall: function () { fallbackToNext('mp4-stall'); }
             });
             v.src = res.url;
             v.play().catch(function () {});
@@ -2963,7 +4650,9 @@
 
         // 4. HTML sanitizado (sin anuncios ni pantalla roja pelotalibre.uno)
         if (res && res.type === 'srcdoc' && res.html) {
-          if (typeof window.__ctvOpenModal === 'function') window.__ctvOpenModal(title);
+          if (window.__ctvPlaySessionId !== currentPlaySession) return;
+          ctvOpenModalSafe(title);
+          updateNextServerButton(isAgendaSports, rawUrl, title, slugOrType, resumeKey, failoverState);
           if (!isAgendaSports && typeof window.ctvUpdateFavButtonsUI === 'function') window.ctvUpdateFavButtonsUI();
           var f = document.getElementById('player-frame');
           if (f) {
@@ -2984,26 +4673,31 @@
         }
 
         if (res && res.type === 'iframe' && res.url && !isAgendaSports) {
-          openInCleanIframe(res.url, title, function () { fallbackToNext('iframe-error'); });
+          openInCleanIframe(res.url, title, function (errReason) {
+            fallbackToNext(errReason || 'iframe-error');
+          }, currentPlaySession, failoverState.hop > 0);
+          updateNextServerButton(isAgendaSports, rawUrl, title, slugOrType, resumeKey, failoverState);
           return;
         }
 
         fallbackToNext('empty-extract');
       }
 
-      var timeoutId = setTimeout(function () {
+      var extractTimeoutMs = ctvIsDesktopProxyAvailable() ? 11000 : 14000;
+      var extractTimer = setTimeout(function () {
         if (window.__ctvPlaySessionId !== currentPlaySession) return;
         fallbackToNext('extract-timeout');
-      }, 9500);
-      registerPlaybackCleanup(function () { clearTimeout(timeoutId); });
+      }, extractTimeoutMs);
+      registerPlaybackCleanup(function () { clearTimeout(extractTimer); });
 
       extractDirectStream(rawUrl)
         .then(function (res) {
-          clearTimeout(timeoutId);
+          clearTimeout(extractTimer);
+          if (window.__ctvPlaySessionId !== currentPlaySession) return;
           playResolvedResult(res);
         })
         .catch(function () {
-          clearTimeout(timeoutId);
+          clearTimeout(extractTimer);
           if (window.__ctvPlaySessionId !== currentPlaySession) return;
           fallbackToNext('extract-error');
         });
@@ -3018,14 +4712,42 @@
     window.__ctvDpadKeyHandler = function (e) {
       var kc = e.keyCode || e.which || 0;
       var isSelectKey = (e.key === 'Enter' || e.key === 'NumpadEnter' || e.key === ' ' || e.key === 'Select' || kc === 13 || kc === 23 || kc === 66);
-      var isBackKey = (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'GoBack' || kc === 4 || kc === 27);
       var activeNow = document.activeElement;
       var activeTag = activeNow && activeNow.tagName ? activeNow.tagName.toUpperCase() : '';
       var isTypingTarget = activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT' || (activeNow && activeNow.isContentEditable);
+      var isBackKey = (
+        e.key === 'Escape' ||
+        e.key === 'Backspace' ||
+        e.key === 'GoBack' ||
+        e.key === 'BrowserBack' ||
+        e.key === 'XF86Back' ||
+        (e.altKey && e.key === 'ArrowLeft') ||
+        kc === 4 ||
+        kc === 27 ||
+        kc === 461 ||
+        kc === 10009 ||
+        kc === 166
+      );
+      if (isTypingTarget && e.key === 'Backspace') {
+        isBackKey = false;
+      }
+      var isIpcBackKey = (e.key === 'Escape' || e.key === 'BrowserBack' || e.key === 'GoBack' || (e.altKey && e.key === 'ArrowLeft'));
+      if (isBackKey && isIpcBackKey && window.__ctvLastIpcBackTs && (Date.now() - window.__ctvLastIpcBackTs) < 80) {
+        window.__ctvLastIpcBackTs = 0;
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        return;
+      }
+      var markLocalBackHandled = function () {
+        if (isIpcBackKey) window.__ctvLastLocalBackTs = Date.now();
+      };
 
-      var subsModal = document.getElementById('ctv-subs-modal') || document.getElementById('ctv-quality-modal');
+      var subsModal = document.getElementById('ctv-subs-modal') || document.getElementById('ctv-quality-modal') || document.getElementById('ctv-imgmode-modal');
       if (subsModal) {
-        var isQualModal = subsModal.id === 'ctv-quality-modal';
+        var modalReturnId = subsModal.id === 'ctv-quality-modal'
+          ? 'player-quality'
+          : (subsModal.id === 'ctv-imgmode-modal' ? 'player-imgmode' : 'player-subs');
         var subBtns = Array.prototype.slice.call(subsModal.querySelectorAll('button.focusable'));
         var curIdx = subBtns.indexOf(document.activeElement);
         if (e.key === 'ArrowDown') {
@@ -3044,12 +4766,20 @@
           if (prev) prev.focus();
           return;
         }
+        if ((kc === 23 || kc === 66 || e.key === 'Select' || e.key === 'NumpadEnter') && document.activeElement && subsModal.contains(document.activeElement) && typeof document.activeElement.click === 'function' && !e.repeat) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          document.activeElement.click();
+          return;
+        }
         if (isBackKey) {
+          markLocalBackHandled();
           e.preventDefault();
           e.stopPropagation();
           if (e.stopImmediatePropagation) e.stopImmediatePropagation();
           subsModal.remove();
-          var ps = document.getElementById(isQualModal ? 'player-quality' : 'player-subs');
+          var ps = document.getElementById(modalReturnId);
           if (ps && !ps.classList.contains('hidden')) ps.focus();
           return;
         }
@@ -3057,12 +4787,12 @@
       }
 
       var updModal = document.getElementById('update-modal');
-      if (updModal && !updModal.classList.contains('hidden') && isBackKey) {
+      if (updModal && !updModal.classList.contains('hidden') && isBackKey && !isTypingTarget) {
+        markLocalBackHandled();
         e.preventDefault();
         e.stopPropagation();
         if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-        var laterBtn = document.getElementById('btn-update-later');
-        if (laterBtn) laterBtn.click();
+        if (typeof window.ctvHandleBackAction === 'function') window.ctvHandleBackAction();
         else updModal.classList.add('hidden');
         return;
       }
@@ -3072,7 +4802,17 @@
 
       // 6A. Navegación D-Pad dedicada para Agenda Deportiva y atajo Esc fullscreen (cuando el reproductor está cerrado)
       if (!playerOpen) {
+        var srvModal = document.getElementById('server-modal');
+        if (srvModal && !srvModal.classList.contains('hidden') && isBackKey && !isTypingTarget) {
+          markLocalBackHandled();
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          if (typeof window.ctvHandleBackAction === 'function') window.ctvHandleBackAction();
+          return;
+        }
         if (e.key === 'Escape' && (document.fullscreenElement || document.webkitFullscreenElement || window.__ctvIsFullscreen)) {
+          markLocalBackHandled();
           e.preventDefault();
           e.stopPropagation();
           if (e.stopImmediatePropagation) e.stopImmediatePropagation();
@@ -3212,6 +4952,23 @@
       }
 
       // 6B. Atajos Desktop y Navegación D-Pad cuando el reproductor está abierto
+      if (isBackKey && !isTypingTarget) {
+        markLocalBackHandled();
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        try {
+          var fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+          if (fsEl && (fsEl === pModal || pModal.contains(fsEl))) {
+            if (document.exitFullscreen) document.exitFullscreen().catch(function () {});
+            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+          }
+        } catch (errFs) {}
+        if (typeof window.ctvForceClosePlayer === 'function') window.ctvForceClosePlayer();
+        else if (typeof window.__ctvClosePlayer === 'function') window.__ctvClosePlayer();
+        return;
+      }
+
       if (!isTypingTarget && e.key && e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat) {
         e.preventDefault();
         e.stopPropagation();
@@ -3219,19 +4976,86 @@
         if (typeof window.ctvToggleFullscreen === 'function') {
           window.ctvToggleFullscreen().then(function (isFs) {
             if (typeof window.ctvShowToast === 'function') {
-              window.ctvShowToast(isFs ? '⛶ Pantalla completa' : '⛶ Modo ventana');
+              window.ctvShowToast(isFs ? 'Pantalla completa' : 'Modo ventana');
             }
           });
         }
         return;
       }
 
-      if (e.key === 'Escape' && (document.fullscreenElement || document.webkitFullscreenElement || window.__ctvIsFullscreen)) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-        if (typeof window.ctvExitFullscreen === 'function') window.ctvExitFullscreen();
-        return;
+      var failoverPill = document.getElementById('ctv-failover-pill');
+      if (failoverPill && activeNow && failoverPill.contains(activeNow)) {
+        var fpCancel = document.getElementById('ctv-failover-cancel');
+        var fpBack = document.getElementById('ctv-failover-back');
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          if (activeNow === fpCancel && fpBack) fpBack.focus();
+          else if (fpCancel) fpCancel.focus();
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          if (typeof window.ctvRevealPlayerBar === 'function') window.ctvRevealPlayerBar();
+          var pBarFp = document.getElementById('player-bar');
+          var bFirstFp = pBarFp && pBarFp.querySelector('.btn:not(.hidden)');
+          if (bFirstFp) bFirstFp.focus();
+          return;
+        }
+        if ((e.key === 'Enter' || e.key === 'NumpadEnter' || e.key === 'Select' || kc === 13 || kc === 23 || kc === 66) && !e.repeat && typeof activeNow.click === 'function') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          activeNow.click();
+          return;
+        }
+      }
+
+      var resumePrompt = document.getElementById('ctv-resume-prompt');
+      if (resumePrompt && activeNow && resumePrompt.contains(activeNow)) {
+        var rYes = document.getElementById('ctv-resume-yes');
+        var rNo = document.getElementById('ctv-resume-no');
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          if (activeNow === rYes && rNo) rNo.focus();
+          else if (rYes) rYes.focus();
+          return;
+        }
+        if (e.key === 'Enter' || e.key === 'NumpadEnter' || e.key === 'Select' || kc === 13 || kc === 23 || kc === 66) {
+          if (!e.repeat && typeof activeNow.click === 'function') {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+            activeNow.click();
+          }
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          if (typeof window.ctvRevealPlayerBar === 'function') window.ctvRevealPlayerBar();
+          var pBarUp = document.getElementById('player-bar');
+          if (pBarUp) {
+            var bFirstUp = pBarUp.querySelector('.btn:not(.hidden)');
+            if (bFirstUp) bFirstUp.focus();
+          }
+          return;
+        }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          removeResumePrompt();
+          var pvBack = document.getElementById('player-video');
+          if (pvBack && !pvBack.classList.contains('hidden')) pvBack.focus();
+          return;
+        }
       }
 
       var agStatus = document.getElementById('ctv-agenda-status');
@@ -3252,13 +5076,6 @@
           if (e.stopImmediatePropagation) e.stopImmediatePropagation();
           var prevSt = stBtns[sIdx - 1] || stBtns[stBtns.length - 1];
           if (prevSt) prevSt.focus();
-          return;
-        }
-        if (isBackKey) {
-          e.preventDefault();
-          e.stopPropagation();
-          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-          if (typeof window.__ctvClosePlayer === 'function') window.__ctvClosePlayer();
           return;
         }
       }
@@ -3330,9 +5147,8 @@
           e.preventDefault();
           e.stopPropagation();
           if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          if (typeof window.ctvRevealPlayerBar === 'function') window.ctvRevealPlayerBar();
           if (pBar) {
-            pBar.classList.remove('hidden');
-            pBar.style.opacity = '1';
             var bFirst = pBar.querySelector('.btn:not(.hidden)');
             if (bFirst) bFirst.focus();
           }
@@ -3362,9 +5178,8 @@
         }
       } else if (f && !f.classList.contains('hidden')) {
         if (e.key === 'ArrowUp') {
+          if (typeof window.ctvRevealPlayerBar === 'function') window.ctvRevealPlayerBar();
           if (pBar) {
-            pBar.classList.remove('hidden');
-            pBar.style.opacity = '1';
             var bBack = document.getElementById('player-back');
             if (bBack) bBack.focus();
           }
@@ -3401,7 +5216,7 @@
               if (typeof window.ctvUpdateFavButtonsUI === 'function') window.ctvUpdateFavButtonsUI();
               var nowFav = typeof window.ctvIsItemFavorite === 'function' ? window.ctvIsItemFavorite(curFav) : false;
               if (typeof window.ctvShowToast === 'function') {
-                window.ctvShowToast(nowFav ? '★ Guardado en Favoritos' : '☆ Eliminado de Favoritos');
+                window.ctvShowToast(nowFav ? 'Guardado en favoritos' : 'Eliminado de favoritos');
               }
             }
           }, 25);
@@ -3482,7 +5297,7 @@
         title: title || 'Título',
         poster: poster,
         year: yearEl ? (yearEl.textContent || '').trim().slice(0, 4) : '',
-        rating: ratingEl ? (ratingEl.textContent || '').replace('★', '').trim() : ''
+        rating: ratingEl ? (ratingEl.textContent || '').replace(/[^\d.]+/g, '').trim() : ''
       };
       card.setAttribute('data-slug', slug);
       card.__ctvItem = itemObj;
@@ -3587,9 +5402,46 @@
         var img = imgs[i];
         if (img.__ctvImgOpt) continue;
         img.__ctvImgOpt = true;
+        if (img.closest && img.closest('.ctv-hero')) continue;
         if (!img.getAttribute('loading')) img.setAttribute('loading', 'lazy');
         if (!img.getAttribute('decoding')) img.setAttribute('decoding', 'async');
       }
+    }
+
+    function healStuckHeroSlide(contentEl) {
+      try {
+        if (!contentEl) return;
+        var hero = contentEl.querySelector('.ctv-hero');
+        if (!hero || !hero.classList.contains('fade')) return;
+        var tiEl = hero.querySelector('.ctv-hero-title');
+        if (tiEl && tiEl.textContent && tiEl.textContent.trim()) return;
+        var card = contentEl.querySelector('.fav-row .carousel .card.movie');
+        if (!card) return;
+        var img = card.querySelector('.card-poster');
+        var src = img ? (img.currentSrc || img.getAttribute('src') || img.src || '') : '';
+        if (!src) return;
+        var bgEl = hero.querySelector('.ctv-hero-bg');
+        var poEl = hero.querySelector('.ctv-hero-poster');
+        var kkEl = hero.querySelector('.ctv-hero-kicker');
+        var meEl = hero.querySelector('.ctv-hero-meta');
+        if (bgEl) { bgEl.setAttribute('loading', 'eager'); bgEl.src = src; }
+        if (poEl) { poEl.setAttribute('loading', 'eager'); poEl.src = src; }
+        if (kkEl) kkEl.textContent = card.querySelector('.badge-top') ? 'Top' : (card.querySelector('.badge-serie') ? 'Serie' : 'Estreno');
+        if (tiEl) {
+          var ct = card.querySelector('.card-title');
+          tiEl.textContent = (ct && ct.textContent ? ct.textContent.trim() : '') || 'CTV';
+        }
+        if (meEl) {
+          var yEl = card.querySelector('.movie-year');
+          var rEl = card.querySelector('.movie-rating');
+          var y = yEl && yEl.textContent ? yEl.textContent.trim() : '';
+          var r = rEl && rEl.textContent ? rEl.textContent.replace(/[^\d.]+/g, '').trim() : '';
+          meEl.textContent = [y, r].filter(Boolean).join('  ·  ');
+        }
+        var firstDot = hero.querySelector('.ctv-hero-dots i');
+        if (firstDot) firstDot.className = 'on';
+        hero.classList.remove('fade');
+      } catch (e) {}
     }
 
     // Desconectar cualquier observador previo (evita fugas de memoria al recargar parches OTA)
@@ -3615,6 +5467,8 @@
         if (contentEl.children && contentEl.children.length > 0) {
           ctvDismissSplash();
         }
+        healStuckHeroSlide(contentEl);
+        ctvSanitizeContainerEmojis(contentEl);
         ctvOptimizeImagesInContainer(contentEl);
         ctvBindMovieCardsInContainer(contentEl);
       } catch (e) {}
@@ -3637,6 +5491,7 @@
         try {
           var detailBody = document.getElementById('detail-body');
           if (!detailBody) return;
+          ctvSanitizeContainerEmojis(detailBody);
           ctvOptimizeImagesInContainer(detailBody);
           if (detailBody.querySelector('#detail-fav') && typeof window.ctvUpdateFavButtonsUI === 'function') {
             window.ctvUpdateFavButtonsUI();
@@ -3667,12 +5522,16 @@
     }
     var filterBarTarget = document.getElementById('filter-bar');
     if (filterBarTarget && typeof MutationObserver === 'function') {
-      var filterObs = new MutationObserver(cleanupStaleMxNodes);
+      var filterObs = new MutationObserver(function () {
+        cleanupStaleMxNodes();
+        ctvSanitizeContainerEmojis(filterBarTarget);
+      });
       filterObs.observe(filterBarTarget, { childList: true });
       window.__ctvScopedObservers.push(filterObs);
     }
 
     cleanupStaleMxNodes();
+    if (filterBarTarget) ctvSanitizeContainerEmojis(filterBarTarget);
     scheduleContentPass();
     scheduleDetailPass();
   } catch (e) {}
@@ -3699,7 +5558,7 @@
         }
         return window.CTV_ANDROID_APK_VERSION || '1.6.0';
       }
-      return window.CTV_APP_VERSION || '1.6.1';
+      return window.CTV_APP_VERSION || '1.6.2';
     }
     window.ctvGetAuthoritativeAppVersion = getAuthoritativeAppVersion;
 
@@ -3852,10 +5711,10 @@
 
       if (btnInstall) {
         btnInstall.disabled = false;
-        if (platform === 'ios') btnInstall.textContent = '⚡ Actualizar en SideStore';
-        else if (platform === 'android') btnInstall.textContent = '⚡ Actualizar APK (' + tag + ')';
-        else if (platform === 'windows') btnInstall.textContent = '⚡ Auto-actualizar .EXE (' + tag + ')';
-        else btnInstall.textContent = '⚡ Auto-actualizar .AppImage (' + tag + ')';
+        if (platform === 'ios') btnInstall.innerHTML = ctvIcon('bell', 16) + '<span>Actualizar en SideStore</span>';
+        else if (platform === 'android') btnInstall.innerHTML = ctvIcon('bell', 16) + '<span>Actualizar APK (' + tag + ')</span>';
+        else if (platform === 'windows') btnInstall.innerHTML = ctvIcon('bell', 16) + '<span>Actualizar .EXE (' + tag + ')</span>';
+        else btnInstall.innerHTML = ctvIcon('bell', 16) + '<span>Actualizar .AppImage (' + tag + ')</span>';
 
         function triggerDesktopUpdate(dlUrl) {
           if (!dlUrl) return;
@@ -3959,9 +5818,12 @@
       var banner = document.createElement('div');
       banner.id = 'ctv-update-banner';
       banner.innerHTML =
-        '<span style="font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">⚡ CTV ' + tag + ' disponible</span>' +
-        '<button type="button" id="ctv-ub-open" class="btn focusable" tabindex="0" style="background:linear-gradient(135deg,#8d37de,#b04cf2);border:0;color:#fff;padding:6px 12px;font-weight:700;font-size:.82rem">Actualizar</button>' +
-        '<button type="button" id="ctv-ub-close" class="btn focusable" tabindex="0" aria-label="Cerrar aviso" style="padding:6px 9px;font-size:.82rem">✕</button>';
+        ctvIcon('bell', 16) +
+        '<span class="ctv-ub-txt" style="font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>' +
+        '<button type="button" id="ctv-ub-open" class="btn ctv-btn-primary focusable" tabindex="0" style="padding:5px 12px;font-weight:600;font-size:.82rem">Actualizar</button>' +
+        '<button type="button" id="ctv-ub-close" class="btn focusable" tabindex="0" aria-label="Cerrar aviso" style="padding:6px 8px">' + ctvIcon('close', 15) + '</button>';
+      var ubTxt = banner.querySelector('.ctv-ub-txt');
+      if (ubTxt) ubTxt.textContent = 'Actualización CTV ' + tag + ' disponible';
       document.body.appendChild(banner);
       var openBtn = banner.querySelector('#ctv-ub-open');
       var closeBtn = banner.querySelector('#ctv-ub-close');

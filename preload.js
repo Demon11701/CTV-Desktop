@@ -25,7 +25,7 @@ function resolveAppVersionFromArgs() {
       if (val && val !== eVer) return val;
     }
   } catch {}
-  return '1.6.1';
+  return '1.6.2';
 }
 
 const APP_VERSION = resolveAppVersionFromArgs();
@@ -52,5 +52,17 @@ contextBridge.exposeInMainWorld('DesktopBridge', Object.freeze({
     }
     return ipcRenderer.invoke('ctv:self-update', downloadUrl);
   },
-  getSelfUpdateStatus: () => ipcRenderer.invoke('ctv:self-update-status')
+  getSelfUpdateStatus: () => ipcRenderer.invoke('ctv:self-update-status'),
+  onPlayerEscape: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const handler = (_ev, payload) => callback(payload || {});
+    ipcRenderer.on('ctv:player-escape', handler);
+    return () => ipcRenderer.removeListener('ctv:player-escape', handler);
+  },
+  onSubframeError: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const handler = (_ev, payload) => callback(payload || {});
+    ipcRenderer.on('ctv:subframe-load-error', handler);
+    return () => ipcRenderer.removeListener('ctv:subframe-load-error', handler);
+  }
 }));

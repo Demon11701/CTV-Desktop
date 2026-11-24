@@ -8,12 +8,17 @@
   window.__ctvDesktopBridgeInit = true;
   window.CTV_APP_VERSION =
     (window.DesktopBridge && typeof window.DesktopBridge.appVersion === 'string' && window.DesktopBridge.appVersion) ||
-    '1.6.1';
+    '1.6.2';
 
   window.__ctvIsFullscreen = false;
   document.addEventListener('fullscreenchange', function () {
     window.__ctvIsFullscreen = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
   });
+  if (window.DesktopBridge && typeof window.DesktopBridge.isFullscreen === 'function') {
+    window.DesktopBridge.isFullscreen().then(function (isFs) {
+      if (isFs) window.__ctvIsFullscreen = true;
+    }).catch(function () {});
+  }
 
   // Helper unificado de pantalla completa (usa IPC validado en Electron y Fullscreen API en Web/Mobile)
   window.ctvToggleFullscreen = function () {
@@ -44,15 +49,17 @@
   window.ctvExitFullscreen = function () {
     try {
       window.__ctvIsFullscreen = false;
+      var doc = document;
+      var fsEl = doc.fullscreenElement || doc.webkitFullscreenElement;
+      var domExit = null;
+      if (fsEl) {
+        if (doc.exitFullscreen) domExit = doc.exitFullscreen().catch(function () { return false; });
+        else if (doc.webkitExitFullscreen) domExit = Promise.resolve(doc.webkitExitFullscreen());
+      }
       if (window.DesktopBridge && typeof window.DesktopBridge.setFullscreen === 'function') {
         return window.DesktopBridge.setFullscreen(false).catch(function () { return false; });
       }
-      var doc = document;
-      var fsEl = doc.fullscreenElement || doc.webkitFullscreenElement;
-      if (fsEl) {
-        if (doc.exitFullscreen) return doc.exitFullscreen().catch(function () {});
-        if (doc.webkitExitFullscreen) return Promise.resolve(doc.webkitExitFullscreen());
-      }
+      if (domExit) return domExit;
     } catch (e) {}
     return Promise.resolve(false);
   };
@@ -62,8 +69,10 @@
   var FAVS_KEY = 'pj2_favs_slugs';
   var WATCHED_KEY = 'pj2_vistos';
   var PREFS_KEY = 'ctv_user_prefs_v1';
+  var WATCH_PROGRESS_KEY = 'ctv_watch_progress_v1';
   var DISMISSED_UPD_KEY = 'ctv_dismissed_update_v1';
   var STATE_TS_KEY = 'ctv_state_updated_at';
+  window.__ctvSupportsWatchProgressState = true;
 
   var isNativeAndroid = Boolean(window.AndroidBridge && typeof window.AndroidBridge.playChannelFull === 'function');
   var isCapNative = Boolean(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()) || isNativeAndroid;
@@ -78,6 +87,39 @@
     } catch (e) {
       return fallback;
     }
+  }
+
+  function pruneWatchProgressLru(mapObj) {
+    if (!mapObj || typeof mapObj !== 'object' || Array.isArray(mapObj)) return {};
+    var entries = [];
+    Object.keys(mapObj).forEach(function (rawKey) {
+      var key = typeof rawKey === 'string' ? rawKey.trim() : '';
+      if (!key || key.length > 180 || key === '__proto__' || key === 'constructor' || key === 'prototype') return;
+      var val = mapObj[rawKey];
+      if (!val || typeof val !== 'object' || Array.isArray(val)) return;
+      if (typeof val.t !== 'number' || !isFinite(val.t) || val.t < 5) return;
+      if (typeof val.d !== 'number' || !isFinite(val.d) || val.d <= 0) return;
+      if (typeof val.updatedAt !== 'number' || !isFinite(val.updatedAt) || val.updatedAt <= 0) return;
+      entries.push([
+        key,
+        {
+          t: val.t,
+          d: val.d,
+          title: typeof val.title === 'string' ? val.title.slice(0, 160) : '',
+          poster: typeof val.poster === 'string' ? val.poster.slice(0, 320) : '',
+          type: val.type === 'serie' ? 'serie' : 'movie',
+          slug: typeof val.slug === 'string' ? val.slug.slice(0, 140) : '',
+          ep: typeof val.ep === 'string' ? val.ep.slice(0, 24) : '',
+          updatedAt: val.updatedAt
+        }
+      ]);
+    });
+    entries.sort(function (a, b) { return b[1].updatedAt - a[1].updatedAt; });
+    var out = {};
+    for (var i = 0; i < entries.length && i < 60; i++) {
+      out[entries[i][0]] = entries[i][1];
+    }
+    return out;
   }
 
   function mergeBySlug(localArr, diskArr) {
@@ -106,6 +148,11 @@
       favTvSlugs: Array.isArray(patch.favTvSlugs) ? patch.favTvSlugs : safeReadJson(FAVS_KEY, []),
       watched: Array.isArray(patch.watched) ? patch.watched : safeReadJson(WATCHED_KEY, []),
       userPrefs: patch.userPrefs && typeof patch.userPrefs === 'object' ? patch.userPrefs : safeReadJson(PREFS_KEY, {}),
+      watchProgress: pruneWatchProgressLru(
+        (patch && patch.watchProgress && typeof patch.watchProgress === 'object')
+          ? patch.watchProgress
+          : safeReadJson(WATCH_PROGRESS_KEY, {})
+      ),
       dismissedUpdateTag:
         typeof patch.dismissedUpdateTag === 'string'
           ? patch.dismissedUpdateTag
@@ -153,6 +200,31 @@
         var curPrefs = safeReadJson(PREFS_KEY, {});
         var nextPrefs = replaceLists ? Object.assign({}, curPrefs, diskState.userPrefs) : Object.assign({}, diskState.userPrefs, curPrefs);
         localStorage.setItem(PREFS_KEY, JSON.stringify(nextPrefs));
+      }
+
+      if (diskState.watchProgress && typeof diskState.watchProgress === 'object' && !Array.isArray(diskState.watchProgress)) {
+        var curProg = safeReadJson(WATCH_PROGRESS_KEY, {});
+        var nextProg;
+        if (replaceLists) {
+          nextProg = pruneWatchProgressLru(diskState.watchProgress);
+        } else {
+          var mergedProg = {};
+          var cleanDisk = pruneWatchProgressLru(diskState.watchProgress);
+          var cleanCur = pruneWatchProgressLru(curProg);
+          Object.keys(cleanDisk).forEach(function (k) {
+            mergedProg[k] = cleanDisk[k];
+          });
+          Object.keys(cleanCur).forEach(function (k) {
+            if (!mergedProg[k] || (cleanCur[k].updatedAt || 0) >= (mergedProg[k].updatedAt || 0)) {
+              mergedProg[k] = cleanCur[k];
+            }
+          });
+          nextProg = pruneWatchProgressLru(mergedProg);
+        }
+        if (JSON.stringify(nextProg) !== JSON.stringify(curProg)) {
+          localStorage.setItem(WATCH_PROGRESS_KEY, JSON.stringify(nextProg));
+          changed = true;
+        }
       }
 
       if (diskState.dismissedUpdateTag) {
@@ -218,6 +290,7 @@
           window.ctvPersistDesktopState();
           if (didChange) {
             if (typeof window.ctvInvalidateFavCache === 'function') window.ctvInvalidateFavCache();
+            if (typeof window.ctvInvalidateWatchProgressCache === 'function') window.ctvInvalidateWatchProgressCache();
             if (typeof window.ctvUpdateFavButtonsUI === 'function') window.ctvUpdateFavButtonsUI();
           }
           return didChange;
