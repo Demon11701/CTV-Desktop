@@ -47,7 +47,7 @@ function resolvePackageAppVersion() {
     }
   } catch {}
   const v = app.getVersion();
-  return v && v !== (process.versions && process.versions.electron) ? v : '1.6.1';
+  return v && v !== (process.versions && process.versions.electron) ? v : '1.6.2';
 }
 
 const APP_VERSION = resolvePackageAppVersion();
@@ -74,6 +74,42 @@ function normalizeStringArray(arr) {
   return Array.from(new Set(arr.map((x) => String(x || '').trim()).filter(Boolean)));
 }
 
+const MAX_WATCH_PROGRESS_ENTRIES = 60;
+
+function normalizeWatchProgressMap(rawMap) {
+  if (!rawMap || typeof rawMap !== 'object' || Array.isArray(rawMap)) return {};
+  const entries = [];
+  for (const [rawKey, val] of Object.entries(rawMap)) {
+    const key = typeof rawKey === 'string' ? rawKey.trim() : '';
+    if (!key || key.length > 180 || key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      continue;
+    }
+    if (!val || typeof val !== 'object' || Array.isArray(val)) continue;
+    if (typeof val.t !== 'number' || !Number.isFinite(val.t) || val.t < 5) continue;
+    if (typeof val.d !== 'number' || !Number.isFinite(val.d) || val.d <= 0) continue;
+    if (typeof val.updatedAt !== 'number' || !Number.isFinite(val.updatedAt) || val.updatedAt <= 0) continue;
+    entries.push([
+      key,
+      {
+        t: val.t,
+        d: val.d,
+        title: typeof val.title === 'string' ? val.title.slice(0, 160) : '',
+        poster: typeof val.poster === 'string' ? val.poster.slice(0, 320) : '',
+        type: val.type === 'serie' ? 'serie' : 'movie',
+        slug: typeof val.slug === 'string' ? val.slug.slice(0, 140) : '',
+        ep: typeof val.ep === 'string' ? val.ep.slice(0, 24) : '',
+        updatedAt: val.updatedAt
+      }
+    ]);
+  }
+  entries.sort((a, b) => b[1].updatedAt - a[1].updatedAt);
+  const out = {};
+  for (const [key, cleanVal] of entries.slice(0, MAX_WATCH_PROGRESS_ENTRIES)) {
+    out[key] = cleanVal;
+  }
+  return out;
+}
+
 function readPersistentState() {
   const defaultState = {
     favMovies: [],
@@ -81,6 +117,7 @@ function readPersistentState() {
     favTvSlugs: [],
     watched: [],
     userPrefs: {},
+    watchProgress: {},
     dismissedUpdateTag: '',
     updatedAt: 0
   };
@@ -95,6 +132,7 @@ function readPersistentState() {
       favTvSlugs: normalizeStringArray(raw.favTvSlugs),
       watched: normalizeStringArray(raw.watched),
       userPrefs: raw.userPrefs && typeof raw.userPrefs === 'object' ? raw.userPrefs : {},
+      watchProgress: normalizeWatchProgressMap(raw.watchProgress),
       dismissedUpdateTag: typeof raw.dismissedUpdateTag === 'string' ? raw.dismissedUpdateTag : '',
       updatedAt: Number(raw.updatedAt) || 0
     };
@@ -141,12 +179,16 @@ cleanupOrphanedStateTempFiles();
 
 function isValidStatePatchObject(obj) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
+  if (obj.watchProgress !== undefined && (!obj.watchProgress || typeof obj.watchProgress !== 'object' || Array.isArray(obj.watchProgress))) {
+    return false;
+  }
   const allowedKeys = new Set([
     'favMovies',
     'favSeries',
     'favTvSlugs',
     'watched',
     'userPrefs',
+    'watchProgress',
     'dismissedUpdateTag',
     'updatedAt'
   ]);
@@ -176,6 +218,10 @@ function writePersistentStateAtomic(patch = {}) {
           curPatch.userPrefs && typeof curPatch.userPrefs === 'object' && !Array.isArray(curPatch.userPrefs)
             ? { ...current.userPrefs, ...curPatch.userPrefs }
             : current.userPrefs,
+        watchProgress:
+          curPatch.watchProgress && typeof curPatch.watchProgress === 'object' && !Array.isArray(curPatch.watchProgress)
+            ? normalizeWatchProgressMap(curPatch.watchProgress)
+            : (current.watchProgress || {}),
         dismissedUpdateTag:
           typeof curPatch.dismissedUpdateTag === 'string'
             ? curPatch.dismissedUpdateTag
@@ -256,19 +302,47 @@ function configureHardwareAcceleration() {
 
     // Mantener fallback limpio a X11/XWayland y decodificación segura sin forzar VA-API, Vulkan ni --use-gl
     // (evita pantalla negra de video en portátiles híbridos Intel + NVIDIA Optimus / prime-run bajo Hyprland)
-    const linuxFeatures = [];
+    const prevEnabled = app.commandLine
+      .getSwitchValue('enable-features')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s && !/vulkan/i.test(s));
+    const prevDisabled = app.commandLine
+      .getSwitchValue('disable-features')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const linuxEnabledSet = new Set(prevEnabled);
+    const linuxDisabledSet = new Set(prevDisabled);
+
     if (isWayland) {
-      app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
-      // Evita conflicto conocido de Electron/Chromium Ozone-Wayland con Vulkan en Hyprland/Optimus
-      app.commandLine.appendSwitch('disable-features', 'Vulkan');
-      linuxFeatures.push('WaylandWindowDecorations');
+      if (!app.commandLine.hasSwitch('ozone-platform') && !app.commandLine.hasSwitch('ozone-platform-hint')) {
+        app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
+      }
+      if (app.commandLine.hasSwitch('use-vulkan')) {
+        app.commandLine.removeSwitch('use-vulkan');
+      }
+      if (!app.commandLine.hasSwitch('use-webgpu-adapter')) {
+        // Evita que Dawn/WebGPU invoque InitializeVulkan (webgpu_on_vk_via_gl_interop) en Ozone-Wayland sin afectar WebGL2/EGL
+        app.commandLine.appendSwitch('use-webgpu-adapter', 'opengles');
+      }
+      // Consolidar una sola llamada disable-features para desactivar Vulkan por completo bajo Ozone-Wayland
+      ['Vulkan', 'DefaultAngleVulkan', 'VulkanFromANGLE', 'VulkanV2'].forEach((f) => linuxDisabledSet.add(f));
+      linuxEnabledSet.add('WaylandWindowDecorations');
     }
     // Opt-in manual para VA-API moderno únicamente fuera de NVIDIA offload
     if (process.env.CTV_ENABLE_VAAPI === '1' && !isNvidiaOffload) {
-      linuxFeatures.push('AcceleratedVideoDecodeLinuxGL', 'AcceleratedVideoDecodeLinuxZeroCopyGL');
+      linuxEnabledSet.add('AcceleratedVideoDecodeLinuxGL');
+      linuxEnabledSet.add('AcceleratedVideoDecodeLinuxZeroCopyGL');
     }
-    if (linuxFeatures.length > 0) {
-      app.commandLine.appendSwitch('enable-features', linuxFeatures.join(','));
+    if (linuxDisabledSet.size > 0) {
+      app.commandLine.removeSwitch('disable-features');
+      app.commandLine.appendSwitch('disable-features', Array.from(linuxDisabledSet).join(','));
+    }
+    if (linuxEnabledSet.size > 0) {
+      app.commandLine.removeSwitch('enable-features');
+      app.commandLine.appendSwitch('enable-features', Array.from(linuxEnabledSet).join(','));
     }
   } else if (isWin) {
     // Decodificación hardware D3D11 + MediaFoundation en Windows respetando la GPU blocklist de Chromium para fallback seguro
@@ -1328,6 +1402,7 @@ async function createWindow() {
   const revealWindow = () => {
     if (shown || !mainWindow || mainWindow.isDestroyed()) return;
     shown = true;
+    if (process.env.CTV_HEADLESS_QA === '1') return;
     mainWindow.show();
     mainWindow.focus();
   };
@@ -1335,7 +1410,7 @@ async function createWindow() {
   mainWindow.once('ready-to-show', revealWindow);
   const revealFallbackTimer = setTimeout(revealWindow, 2500);
 
-  // Toggle fullscreen with F11 or Alt+Enter
+  // Toggle fullscreen with F11 or Alt+Enter, and intercept Back/Escape before cross-origin iframes capture focus
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown') {
       if (input.key === 'F11' || (input.alt && input.key === 'Enter')) {
@@ -1343,6 +1418,44 @@ async function createWindow() {
           mainWindow.setFullScreen(!mainWindow.isFullScreen());
         }
         event.preventDefault();
+        return;
+      }
+      if (
+        input.key === 'Escape' ||
+        input.key === 'BrowserBack' ||
+        input.key === 'GoBack' ||
+        (input.alt && input.key === 'ArrowLeft')
+      ) {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          const wasFullscreen = Boolean(mainWindow.isFullScreen());
+          if (input.key === 'Escape' && wasFullscreen) {
+            mainWindow.setFullScreen(false);
+          }
+          mainWindow.webContents.send('ctv:player-escape', {
+            key: input.key,
+            isFullscreen: wasFullscreen,
+            exitedFullscreen: Boolean(input.key === 'Escape' && wasFullscreen)
+          });
+        }
+      }
+    }
+  });
+
+  // Notify renderer when a non-ad embed subframe fails to load (enables instant Desktop iframe failover)
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (
+      !isMainFrame &&
+      errorCode !== -3 &&
+      typeof validatedURL === 'string' &&
+      validatedURL.startsWith('http') &&
+      !isAdUrl(validatedURL)
+    ) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('ctv:subframe-load-error', {
+          url: String(validatedURL || ''),
+          errorCode: Number(errorCode) || 0,
+          errorDescription: String(errorDescription || '')
+        });
       }
     }
   });
@@ -1382,15 +1495,35 @@ async function createWindow() {
     }
   });
 
-  // Inject cosmetic & video ad-blocker script into every embed subframe
+  // Inject cosmetic & video ad-blocker script into external HTTP(S) embed subframes (never into about:blank or destroyed frames)
   mainWindow.webContents.on('did-frame-finish-load', (_event, isMainFrame, frameProcessId, frameRoutingId) => {
     if (!isMainFrame) {
       try {
         const frame = webFrameMain.fromId(frameProcessId, frameRoutingId);
-        if (frame && frame.url && !frame.url.startsWith('http://127.0.0.1')) {
+        if (
+          frame &&
+          !frame.isDestroyed() &&
+          typeof frame.url === 'string' &&
+          (frame.url.startsWith('https://') || frame.url.startsWith('http://')) &&
+          !frame.url.startsWith('http://127.0.0.1')
+        ) {
           frame.executeJavaScript(EMBED_ADBLOCK_SCRIPT).catch(() => {});
         }
       } catch {}
+    }
+  });
+
+  // Observabilidad y auto-recuperación si un proceso renderer termina inesperadamente
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    const reason = (details && details.reason) || 'unknown';
+    const exitCode = details && typeof details.exitCode === 'number' ? details.exitCode : -1;
+    console.warn(`[CTV] render-process-gone: reason=${reason} exitCode=${exitCode}`);
+    if (reason !== 'clean-exit' && mainWindow && !mainWindow.isDestroyed()) {
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.loadURL(appUrl).catch(() => {});
+        }
+      }, 300);
     }
   });
 
