@@ -21,7 +21,7 @@
       "category": "entertainment",
       "version": "1.6.2",
       "versionDate": "2026-11-24T06:15:47Z",
-      "versionDescription": "CTV v1.6.1 (ota.13): Arranque HLS directo en 1080p/HD (5 Mbps), selector manual de resolución y Modo de Imagen (Original / Nítido HD / Cine), priorización de servidores HD, fallback automático en Vidara, favoritos blindados y comparador SemVer estricto.",
+      "versionDescription": "CTV v1.6.2: Interfaz simplificada con 17 iconos vectoriales SVG, persistencia automatica de continuar viendo, controles de salida infalibles, failover unificado y estabilidad grafica optimizada bajo Linux Wayland.",
       "downloadURL": "https://github.com/Demon11701/CTV-Desktop/releases/download/v1.6.2/CTV-1.6.2-ios.ipa",
       "size": 1710414,
       "appPermissions": {
@@ -33,7 +33,7 @@
           "version": "1.6.2",
           "buildVersion": "1.6.2",
           "date": "2026-11-24T06:15:47Z",
-          "localizedDescription": "CTV v1.6.2 para iOS (SideStore / AltStore).",
+          "localizedDescription": "CTV v1.6.2 para iOS (SideStore / AltStore). Incluye iconos SVG, continuar viendo persistente y reproduccion robusta.",
           "downloadURL": "https://github.com/Demon11701/CTV-Desktop/releases/download/v1.6.2/CTV-1.6.2-ios.ipa",
           "size": 1710414,
           "minOSVersion": "15.0"
