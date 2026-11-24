@@ -5,7 +5,8 @@
  */
 (function () {
   var prevOtaVer = window.CTV_OTA_VERSION || '';
-  window.CTV_OTA_VERSION = '1.6.2-ota.19';
+  window.CTV_OTA_VERSION = '1.6.2-ota.20';
+  window.__ctvOtaUpdaterOwned = true;
 
   var CTV_ICONS = {
     back: '<path d="M15 18l-6-6 6-6"/>',
@@ -1222,6 +1223,17 @@
 
     window.fetch = async function (resource, init) {
       var url = typeof resource === 'string' ? resource : (resource && resource.url) || '';
+      // Neutralizar llamadas heredadas de ctv-ui.js antiguo (ej. CTV-1.6.0.apk setTimeout 3000ms) a releases/latest
+      if (url.indexOf('api.github.com/repos/Demon11701/CTV-Desktop/releases/latest') >= 0 && window.__ctvOtaUpdaterOwned) {
+        if (typeof window.checkCTVGitHubUpdate === 'function' && !window.__ctvOtaAutoCheckDone) {
+          setTimeout(function () {
+            if (!window.__ctvOtaAutoCheckDone && typeof window.checkCTVGitHubUpdate === 'function') {
+              window.checkCTVGitHubUpdate(false);
+            }
+          }, 0);
+        }
+        return jsonResponse({});
+      }
       if (url.indexOf('pelisjuanita.com') < 0) {
         return _nativeFetch.apply(this, arguments);
       }
@@ -2219,7 +2231,7 @@
         }
       } catch (e) {}
     }
-    window.__ctvHlsHookVersion = 19;
+    window.__ctvHlsHookVersion = 20;
 
     try {
       var pvEl = document.getElementById('player-video');
@@ -5536,72 +5548,29 @@
     scheduleDetailPass();
   } catch (e) {}
 
-  // 8. Comprobador no bloqueante de actualizaciones (timeout 5s, offline silencioso, caché TTL 6h y banner UX no intrusivo)
+  // 8. Comprobador multiplataforma autoritativo y anti-bucles de actualizaciones (Android, Smart TV, iOS, Windows y Linux)
   try {
     var GH_LATEST_URL = 'https://api.github.com/repos/Demon11701/CTV-Desktop/releases/latest';
     var ALTSTORE_URL = 'https://raw.githubusercontent.com/Demon11701/CTV-Desktop/main/altstore-repo.json';
-    var GH_CACHE_KEY = 'ctv_gh_release_cache_v1';
+    var GH_CACHE_KEY = 'ctv_gh_release_cache_v2';
     var DISMISSED_TAG_KEY = 'ctv_dismissed_update_v1';
     var GH_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+    var ANDROID_BASE_FLOOR_VER = '1.6.0';
     var cachedReleaseObj = null;
+    try { localStorage.removeItem('ctv_gh_release_cache_v1'); } catch (e) {}
 
-    function getAuthoritativeAppVersion() {
-      if (window.DesktopBridge && typeof window.DesktopBridge.appVersion === 'string' && window.DesktopBridge.appVersion) {
-        return window.DesktopBridge.appVersion;
-      }
-      if (detectPlatformOta() === 'android') {
-        if (window.AndroidBridge && typeof window.AndroidBridge.getAppVersionName === 'function') {
-          try {
-            var androidVer = window.AndroidBridge.getAppVersionName();
-            if (androidVer) return String(androidVer).trim();
-          } catch (e) {}
-        }
-        return window.CTV_ANDROID_APK_VERSION || '1.6.0';
-      }
-      return window.CTV_APP_VERSION || '1.6.2';
+    function extractCleanSemver(raw) {
+      if (!raw || typeof raw !== 'string') return '';
+      var cleaned = raw.trim().replace(/-ota\.\d+/gi, '');
+      var m = cleaned.match(/(?:^|[^0-9.])(\d+)\.(\d+)(?:\.(\d+))?(?!\d|\.\d)/);
+      if (!m) return '';
+      return String(parseInt(m[1], 10) || 0) + '.' + String(parseInt(m[2], 10) || 0) + '.' + String(parseInt(m[3] || '0', 10) || 0);
     }
-    window.ctvGetAuthoritativeAppVersion = getAuthoritativeAppVersion;
-
-    function resolveEffectiveReleaseVersion(release, platform) {
-      if (!release) return '';
-      var plat = platform || detectPlatformOta();
-      var fallbackTag = String(release.tag_name || release.name || '').trim();
-      if (plat === 'android' && Array.isArray(release.assets)) {
-        for (var i = 0; i < release.assets.length; i++) {
-          var a = release.assets[i];
-          if (!a) continue;
-          var aName = String(a.name || '');
-          var aUrl = String(a.browser_download_url || '');
-          if (/\.apk(\?|$)/i.test(aName) || /\.apk(\?|$)/i.test(aUrl)) {
-            var m = aName.match(/(\d+\.\d+\.\d+)/);
-            if (!m && aUrl) {
-              var urlFile = aUrl.split('?')[0].split('/').pop() || aUrl;
-              m = urlFile.match(/(\d+\.\d+\.\d+)/) || aUrl.match(/(\d+\.\d+\.\d+)/);
-            }
-            if (m && m[1]) return m[1];
-          }
-        }
-      }
-      return fallbackTag;
-    }
-    window.ctvResolveEffectiveReleaseVersion = resolveEffectiveReleaseVersion;
-
-    function ctvFetchWithTimeout(url, opts, timeoutMs) {
-      var ms = timeoutMs || 5000;
-      var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
-      var timer = ctrl ? setTimeout(function () { try { ctrl.abort(); } catch (e) {} }, ms) : null;
-      var fetchOpts = Object.assign({}, opts || {});
-      if (ctrl) fetchOpts.signal = ctrl.signal;
-      var fn = _nativeFetch || window.fetch.bind(window);
-      return fn(url, fetchOpts).finally(function () {
-        if (timer) clearTimeout(timer);
-      });
-    }
-    window.ctvFetchWithTimeout = ctvFetchWithTimeout;
 
     function parseSemverOta(v) {
-      var base = String(v || '').trim().replace(/^[vV]+/, '').split(/[-+]/)[0];
-      var parts = base.split('.').map(function (n) { return parseInt(n, 10) || 0; });
+      var clean = extractCleanSemver(String(v || ''));
+      if (!clean) return [0, 0, 0];
+      var parts = clean.split('.').map(function (n) { return parseInt(n, 10) || 0; });
       while (parts.length < 3) parts.push(0);
       return parts;
     }
@@ -5621,48 +5590,218 @@
       return compareSemver(remoteVer, localVer) > 0;
     }
 
-    function persistDismissedUpdateTag(tag) {
-      if (!tag) return;
-      try { sessionStorage.setItem('ctv_gh_update_postponed_' + tag, '1'); } catch (e) {}
-      try { localStorage.setItem(DISMISSED_TAG_KEY, String(tag)); } catch (e) {}
-      if (typeof window.ctvPersistDesktopState === 'function') {
-        window.ctvPersistDesktopState({ dismissedUpdateTag: String(tag) });
-      }
-    }
-
-    function isUpdateTagDismissed(tag) {
-      if (!tag) return false;
-      try {
-        if (sessionStorage.getItem('ctv_gh_update_postponed_' + tag)) return true;
-        if (localStorage.getItem(DISMISSED_TAG_KEY) === String(tag)) return true;
-      } catch (e) {}
-      return false;
-    }
-
     function detectPlatformOta() {
-      var ua = navigator.userAgent || '';
+      if (window.__ctvTestPlatformOverride) return String(window.__ctvTestPlatformOverride);
+      if (window.DesktopBridge && window.DesktopBridge.isDesktop) {
+        if (window.DesktopBridge.platform === 'win32') return 'windows';
+        if (window.DesktopBridge.platform === 'linux') return 'linux';
+      }
+      var ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
+      var navPlat = (typeof navigator !== 'undefined' && navigator.platform) ? navigator.platform : '';
+      var maxTouch = (typeof navigator !== 'undefined' && typeof navigator.maxTouchPoints === 'number') ? navigator.maxTouchPoints : 0;
       var capPlatform = '';
       try {
         if (window.Capacitor && typeof window.Capacitor.getPlatform === 'function') {
-          capPlatform = window.Capacitor.getPlatform();
+          capPlatform = String(window.Capacitor.getPlatform() || '').toLowerCase();
         }
       } catch (e) {}
-      if (capPlatform === 'ios' || /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'ios';
-      if (capPlatform === 'android' || (window.AndroidBridge && typeof window.AndroidBridge.playChannelFull === 'function')) return 'android';
-      if (/Windows/i.test(ua) || /Win32|Win64/i.test(navigator.platform || '')) return 'windows';
+      if (capPlatform === 'ios' || /iPhone|iPad|iPod/i.test(ua) || (navPlat === 'MacIntel' && maxTouch > 1)) {
+        return 'ios';
+      }
+      var hasNativeAndroidBridge = Boolean(
+        window.AndroidBridge &&
+        (typeof window.AndroidBridge.playChannelFull === 'function' ||
+         typeof window.AndroidBridge.downloadAndInstallApk === 'function')
+      );
+      if (capPlatform === 'android' || hasNativeAndroidBridge || /Android/i.test(ua)) {
+        return 'android';
+      }
+      if (/Windows/i.test(ua) || /Win32|Win64/i.test(navPlat)) return 'windows';
       return 'linux';
     }
+    window.ctvDetectRuntimePlatform = detectPlatformOta;
 
-    function findAssetByExt(assets, ext) {
-      if (!Array.isArray(assets)) return '';
-      var lowerExt = ext.toLowerCase();
-      for (var i = 0; i < assets.length; i++) {
-        var a = assets[i];
-        if (a && a.name && a.name.toLowerCase().endsWith(lowerExt) && a.browser_download_url) {
-          return a.browser_download_url;
+    function getInstalledBinaryVersion(platform) {
+      var plat = platform || detectPlatformOta();
+      if (plat === 'windows' || plat === 'linux') {
+        if (window.DesktopBridge && typeof window.DesktopBridge.appVersion === 'string') {
+          var dbVer = window.DesktopBridge.appVersion.trim();
+          var elVer = String(window.DesktopBridge.electronVersion || '').trim();
+          var cleanDbVer = extractCleanSemver(dbVer);
+          if (cleanDbVer && dbVer !== elVer) return cleanDbVer;
         }
+        var deskFallback = extractCleanSemver(window.__ctvRuntimeAppVersion || window.CTV_APP_VERSION || '');
+        return deskFallback || '1.6.2';
       }
-      return '';
+      if (plat === 'android') {
+        var explicitApkVer = extractCleanSemver(window.CTV_ANDROID_APK_VERSION || '');
+        if (explicitApkVer && compareSemver(explicitApkVer, ANDROID_BASE_FLOOR_VER) >= 0) {
+          return explicitApkVer;
+        }
+        if (window.AndroidBridge && typeof window.AndroidBridge.getAppVersionName === 'function') {
+          try {
+            var rawBridgeVer = String(window.AndroidBridge.getAppVersionName() || '').trim();
+            var cleanBridgeVer = extractCleanSemver(rawBridgeVer);
+            if (cleanBridgeVer && compareSemver(cleanBridgeVer, ANDROID_BASE_FLOOR_VER) >= 0) {
+              return cleanBridgeVer;
+            }
+          } catch (e) {}
+        }
+        var bundleAndroidVer = extractCleanSemver(window.CTV_APP_VERSION || '');
+        if (bundleAndroidVer && compareSemver(bundleAndroidVer, ANDROID_BASE_FLOOR_VER) >= 0) {
+          // En CTV-1.6.0.apk CTV_APP_VERSION es '1.6.0'; nunca usar CTV_OTA_VERSION
+          return bundleAndroidVer;
+        }
+        return ANDROID_BASE_FLOOR_VER;
+      }
+      if (plat === 'ios') {
+        var nativeIos = extractCleanSemver(window.__ctvNativeIosVersion || '');
+        if (nativeIos) return nativeIos;
+        var bundleIos = extractCleanSemver(window.CTV_APP_VERSION || '');
+        return bundleIos || '1.6.0';
+      }
+      return extractCleanSemver(window.CTV_APP_VERSION || '') || '1.6.2';
+    }
+    window.ctvGetInstalledBinaryVersion = getInstalledBinaryVersion;
+    window.ctvGetAuthoritativeAppVersion = getInstalledBinaryVersion;
+
+    function resolveInstalledBinaryVersionAsync(platform) {
+      var plat = platform || detectPlatformOta();
+      if ((plat === 'windows' || plat === 'linux') && window.DesktopBridge && typeof window.DesktopBridge.getRuntimeInfo === 'function') {
+        return new Promise(function (resolve) {
+          var settled = false;
+          var t = setTimeout(function () {
+            if (!settled) { settled = true; resolve(getInstalledBinaryVersion(plat)); }
+          }, 900);
+          Promise.resolve(window.DesktopBridge.getRuntimeInfo())
+            .then(function (info) {
+              if (settled) return;
+              settled = true;
+              clearTimeout(t);
+              if (info && typeof info.appVersion === 'string') {
+                var elV = String(info.electronVersion || window.DesktopBridge.electronVersion || '').trim();
+                var cleanV = extractCleanSemver(info.appVersion);
+                if (cleanV && info.appVersion.trim() !== elV) {
+                  window.__ctvRuntimeAppVersion = cleanV;
+                  resolve(cleanV);
+                  return;
+                }
+              }
+              resolve(getInstalledBinaryVersion(plat));
+            })
+            .catch(function () {
+              if (!settled) { settled = true; clearTimeout(t); resolve(getInstalledBinaryVersion(plat)); }
+            });
+        });
+      }
+      if (plat === 'ios' && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App && typeof window.Capacitor.Plugins.App.getInfo === 'function') {
+        return new Promise(function (resolve) {
+          var settled = false;
+          var t = setTimeout(function () {
+            if (!settled) { settled = true; resolve(getInstalledBinaryVersion('ios')); }
+          }, 1000);
+          Promise.resolve(window.Capacitor.Plugins.App.getInfo())
+            .then(function (info) {
+              if (settled) return;
+              settled = true;
+              clearTimeout(t);
+              var cleanIos = info && typeof info.version === 'string' ? extractCleanSemver(info.version) : '';
+              if (cleanIos) {
+                window.__ctvNativeIosVersion = cleanIos;
+                resolve(cleanIos);
+                return;
+              }
+              resolve(getInstalledBinaryVersion('ios'));
+            })
+            .catch(function () {
+              if (!settled) { settled = true; clearTimeout(t); resolve(getInstalledBinaryVersion('ios')); }
+            });
+        });
+      }
+      return Promise.resolve(getInstalledBinaryVersion(plat));
+    }
+
+    function getTargetReleaseAssetForPlatform(release, platform) {
+      if (!release || !Array.isArray(release.assets) || !release.assets.length) return null;
+      var plat = platform || detectPlatformOta();
+      var extRe = null;
+      if (plat === 'android') extRe = /\.apk(\?|$)/i;
+      else if (plat === 'ios') extRe = /\.ipa(\?|$)/i;
+      else if (plat === 'windows') extRe = /\.exe(\?|$)/i;
+      else extRe = /\.appimage(\?|$)/i;
+
+      for (var i = 0; i < release.assets.length; i++) {
+        var a = release.assets[i];
+        if (!a) continue;
+        var aName = String(a.name || '').trim();
+        var aUrl = String(a.browser_download_url || a.url || '').trim();
+        var urlFile = aUrl ? (aUrl.split('?')[0].split('/').pop() || '') : '';
+        if (!aUrl) continue;
+        if (!extRe.test(aName) && !extRe.test(urlFile)) continue;
+
+        var assetVer = extractCleanSemver(aName) || extractCleanSemver(urlFile);
+        if (!assetVer) {
+          assetVer = extractCleanSemver(String(release.tag_name || release.name || ''));
+        }
+        if (!assetVer) return null;
+        return {
+          name: aName || urlFile,
+          url: aUrl,
+          version: assetVer
+        };
+      }
+      return null;
+    }
+    window.ctvGetTargetReleaseAssetForPlatform = getTargetReleaseAssetForPlatform;
+
+    function resolveEffectiveReleaseVersion(release, platform) {
+      var target = getTargetReleaseAssetForPlatform(release, platform);
+      return target ? target.version : '';
+    }
+    window.ctvResolveEffectiveReleaseVersion = resolveEffectiveReleaseVersion;
+
+    function ctvFetchWithTimeout(url, opts, timeoutMs) {
+      var ms = timeoutMs || 5000;
+      var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+      var timer = ctrl ? setTimeout(function () { try { ctrl.abort(); } catch (e) {} }, ms) : null;
+      var fetchOpts = Object.assign({}, opts || {});
+      if (ctrl) fetchOpts.signal = ctrl.signal;
+      var fn = _nativeFetch || window.fetch.bind(window);
+      return fn(url, fetchOpts).finally(function () {
+        if (timer) clearTimeout(timer);
+      });
+    }
+    window.ctvFetchWithTimeout = ctvFetchWithTimeout;
+
+    function persistDismissedUpdateTag(tag, assetVersion) {
+      var rawTag = String(tag || '').trim();
+      var cleanVer = extractCleanSemver(assetVersion || rawTag);
+      var persistVal = cleanVer || rawTag;
+      if (!persistVal) return;
+      try {
+        if (rawTag) sessionStorage.setItem('ctv_gh_update_postponed_' + rawTag, '1');
+        if (cleanVer) sessionStorage.setItem('ctv_gh_update_postponed_' + cleanVer, '1');
+      } catch (e) {}
+      try { localStorage.setItem(DISMISSED_TAG_KEY, persistVal); } catch (e) {}
+      if (typeof window.ctvPersistDesktopState === 'function') {
+        window.ctvPersistDesktopState({ dismissedUpdateTag: persistVal });
+      }
+    }
+
+    function isUpdateTagDismissed(tag, assetVersion) {
+      var rawTag = String(tag || '').trim();
+      var cleanTarget = extractCleanSemver(assetVersion || rawTag);
+      try {
+        if (rawTag && sessionStorage.getItem('ctv_gh_update_postponed_' + rawTag)) return true;
+        if (cleanTarget && sessionStorage.setItem && sessionStorage.getItem('ctv_gh_update_postponed_' + cleanTarget)) return true;
+        var saved = String(localStorage.getItem(DISMISSED_TAG_KEY) || '').trim();
+        if (!saved) return false;
+        if (rawTag && saved === rawTag) return true;
+        if (cleanTarget && saved === cleanTarget) return true;
+        var cleanSaved = extractCleanSemver(saved);
+        if (cleanTarget && cleanSaved && compareSemver(cleanTarget, cleanSaved) <= 0) return true;
+      } catch (e) {}
+      return false;
     }
 
     function clearUpdatePoll() {
@@ -5672,21 +5811,130 @@
       }
     }
 
+    function cancelStaleUpdateSweeps() {
+      if (Array.isArray(window.__ctvSuppressSweepTimers)) {
+        window.__ctvSuppressSweepTimers.forEach(function (tid) {
+          try { clearTimeout(tid); } catch (e) {}
+        });
+      }
+      window.__ctvSuppressSweepTimers = [];
+    }
+
     function removeUpdateBanner() {
       try {
-        var b = document.getElementById('ctv-update-banner');
-        if (b && b.parentNode) b.remove();
+        var banners = document.querySelectorAll('#ctv-update-banner');
+        for (var i = 0; i < banners.length; i++) {
+          if (banners[i] && banners[i].parentNode) banners[i].parentNode.removeChild(banners[i]);
+        }
       } catch (e) {}
     }
 
-    function openGitHubUpdateModalOta(release) {
+    function restoreDpadFocusAfterUpdateModalSuppress(modalEl) {
+      try {
+        var active = document.activeElement;
+        var trappedInModal = Boolean(active && modalEl && modalEl.contains(active));
+        if (!trappedInModal && active && active !== document.body && active !== document.documentElement) {
+          return;
+        }
+        if (trappedInModal && typeof active.blur === 'function') {
+          try { active.blur(); } catch (e) {}
+        }
+        var target =
+          document.querySelector('#content .ctv-hero-btn') ||
+          document.querySelector('#content .card.focusable') ||
+          document.querySelector('#content .card') ||
+          document.querySelector('#content .agenda-card') ||
+          document.querySelector('.menu-item.active') ||
+          document.querySelector('.menu-item');
+        if (target && typeof target.focus === 'function') {
+          try { target.focus({ preventScroll: true }); } catch (e) { try { target.focus(); } catch (x) {} }
+        }
+      } catch (e) {}
+    }
+
+    function ctvSuppressStaleUpdateUI(forceSuppress) {
+      if (window.__ctvAuthoritativeUpdateActive && !forceSuppress) return;
+      try {
+        clearUpdatePoll();
+        removeUpdateBanner();
+        var bell = document.getElementById('update-bell');
+        if (bell) {
+          bell.classList.add('hidden');
+          bell.onclick = null;
+        }
+        var modal = document.getElementById('update-modal');
+        if (modal && !modal.classList.contains('hidden')) {
+          modal.classList.add('hidden');
+          restoreDpadFocusAfterUpdateModalSuppress(modal);
+        }
+      } catch (e) {}
+    }
+    window.ctvSuppressStaleUpdateUI = ctvSuppressStaleUpdateUI;
+
+    function scheduleStaleUpdateSweeps() {
+      window.__ctvAuthoritativeUpdateActive = false;
+      cancelStaleUpdateSweeps();
+      ctvSuppressStaleUpdateUI(true);
+      var delays = [400, 1800, 3500];
+      for (var i = 0; i < delays.length; i++) {
+        (function (ms) {
+          var tid = setTimeout(function () {
+            if (!window.__ctvAuthoritativeUpdateActive) {
+              ctvSuppressStaleUpdateUI(true);
+            }
+          }, ms);
+          window.__ctvSuppressSweepTimers.push(tid);
+        })(delays[i]);
+      }
+    }
+
+    function installUnauthorizedUpdateModalGuard() {
+      if (typeof MutationObserver !== 'function') return;
+      try {
+        if (window.__ctvUpdateModalGuardObserver) {
+          try { window.__ctvUpdateModalGuardObserver.disconnect(); } catch (e) {}
+        }
+        var obs = new MutationObserver(function () {
+          if (window.__ctvAuthoritativeUpdateActive) return;
+          var modal = document.getElementById('update-modal');
+          var bell = document.getElementById('update-bell');
+          var modalVisible = Boolean(modal && !modal.classList.contains('hidden'));
+          var bellVisible = Boolean(bell && !bell.classList.contains('hidden'));
+          if (modalVisible || bellVisible) {
+            ctvSuppressStaleUpdateUI(true);
+          }
+        });
+        var mEl = document.getElementById('update-modal');
+        var bEl = document.getElementById('update-bell');
+        if (mEl) obs.observe(mEl, { attributes: true, attributeFilter: ['class'] });
+        if (bEl) obs.observe(bEl, { attributes: true, attributeFilter: ['class'] });
+        window.__ctvUpdateModalGuardObserver = obs;
+      } catch (e) {}
+    }
+
+    // Barrido inmediato + guardián microtask al cargar ctv-ota.js para bloquear cualquier modal/banner de ctv-ui.js antiguo
+    if (!window.__ctvAuthoritativeUpdateActive) {
+      ctvSuppressStaleUpdateUI(true);
+    }
+    installUnauthorizedUpdateModalGuard();
+
+    function openGitHubUpdateModalOta(release, targetAssetOverride) {
       removeUpdateBanner();
       var modal = document.getElementById('update-modal');
       if (!modal || !release) return;
 
-      var tag = release.tag_name || release.name || '';
       var platform = detectPlatformOta();
-      var assets = release.assets || [];
+      var targetAsset = targetAssetOverride || getTargetReleaseAssetForPlatform(release, platform);
+      if (!targetAsset) {
+        ctvSuppressStaleUpdateUI(true);
+        return;
+      }
+
+      cancelStaleUpdateSweeps();
+      window.__ctvAuthoritativeUpdateActive = true;
+
+      var displayVer = 'v' + targetAsset.version;
+      var rawTag = String(release.tag_name || release.name || displayVer);
 
       var titleEl = document.getElementById('update-version-title');
       var changelogEl = document.getElementById('update-changelog');
@@ -5697,7 +5945,7 @@
       var btnInstall = document.getElementById('btn-update-install');
       var btnLater = document.getElementById('btn-update-later');
 
-      if (titleEl) titleEl.textContent = 'CTV ' + tag;
+      if (titleEl) titleEl.textContent = 'CTV ' + displayVer;
       if (changelogEl) {
         changelogEl.textContent = release.body || (
           platform === 'ios'
@@ -5712,9 +5960,9 @@
       if (btnInstall) {
         btnInstall.disabled = false;
         if (platform === 'ios') btnInstall.innerHTML = ctvIcon('bell', 16) + '<span>Actualizar en SideStore</span>';
-        else if (platform === 'android') btnInstall.innerHTML = ctvIcon('bell', 16) + '<span>Actualizar APK (' + tag + ')</span>';
-        else if (platform === 'windows') btnInstall.innerHTML = ctvIcon('bell', 16) + '<span>Actualizar .EXE (' + tag + ')</span>';
-        else btnInstall.innerHTML = ctvIcon('bell', 16) + '<span>Actualizar .AppImage (' + tag + ')</span>';
+        else if (platform === 'android') btnInstall.innerHTML = ctvIcon('bell', 16) + '<span>Actualizar APK (' + displayVer + ')</span>';
+        else if (platform === 'windows') btnInstall.innerHTML = ctvIcon('bell', 16) + '<span>Actualizar .EXE (' + displayVer + ')</span>';
+        else btnInstall.innerHTML = ctvIcon('bell', 16) + '<span>Actualizar .AppImage (' + displayVer + ')</span>';
 
         function triggerDesktopUpdate(dlUrl) {
           if (!dlUrl) return;
@@ -5773,7 +6021,7 @@
             return;
           }
           if (platform === 'android') {
-            var apkUrl = findAssetByExt(assets, '.apk') || release.html_url;
+            var apkUrl = targetAsset.url;
             var bridge = window.AndroidBridge;
             if (bridge && typeof bridge.canRequestInstalls === 'function' && !bridge.canRequestInstalls()) {
               if (progressWrap) progressWrap.classList.remove('hidden');
@@ -5790,10 +6038,7 @@
             if (apkUrl) window.open(apkUrl, '_blank');
             return;
           }
-          var desktopUrl = platform === 'windows'
-            ? (findAssetByExt(assets, '.exe') || release.html_url)
-            : (findAssetByExt(assets, '.AppImage') || release.html_url);
-          triggerDesktopUpdate(desktopUrl);
+          triggerDesktopUpdate(targetAsset.url);
         };
       }
 
@@ -5801,8 +6046,8 @@
         btnLater.style.display = '';
         btnLater.onclick = function () {
           clearUpdatePoll();
-          persistDismissedUpdateTag(tag);
-          modal.classList.add('hidden');
+          persistDismissedUpdateTag(rawTag, targetAsset.version);
+          scheduleStaleUpdateSweeps();
         };
       }
 
@@ -5810,10 +6055,14 @@
       if (btnInstall && btnInstall.focus) btnInstall.focus();
     }
 
-    function showNonIntrusiveUpdateBanner(release) {
-      if (!release || !release.tag_name) return;
-      var tag = release.tag_name;
-      if (isUpdateTagDismissed(tag)) return;
+    function showNonIntrusiveUpdateBanner(release, targetAsset) {
+      if (!release || !targetAsset) return;
+      var rawTag = String(release.tag_name || release.name || ('v' + targetAsset.version));
+      var displayVer = 'v' + targetAsset.version;
+      if (isUpdateTagDismissed(rawTag, targetAsset.version)) {
+        scheduleStaleUpdateSweeps();
+        return;
+      }
       removeUpdateBanner();
       var banner = document.createElement('div');
       banner.id = 'ctv-update-banner';
@@ -5823,77 +6072,129 @@
         '<button type="button" id="ctv-ub-open" class="btn ctv-btn-primary focusable" tabindex="0" style="padding:5px 12px;font-weight:600;font-size:.82rem">Actualizar</button>' +
         '<button type="button" id="ctv-ub-close" class="btn focusable" tabindex="0" aria-label="Cerrar aviso" style="padding:6px 8px">' + ctvIcon('close', 15) + '</button>';
       var ubTxt = banner.querySelector('.ctv-ub-txt');
-      if (ubTxt) ubTxt.textContent = 'Actualización CTV ' + tag + ' disponible';
+      if (ubTxt) ubTxt.textContent = 'Actualización CTV ' + displayVer + ' disponible';
       document.body.appendChild(banner);
       var openBtn = banner.querySelector('#ctv-ub-open');
       var closeBtn = banner.querySelector('#ctv-ub-close');
-      if (openBtn) openBtn.onclick = function () { openGitHubUpdateModalOta(release); };
+      if (openBtn) openBtn.onclick = function () { openGitHubUpdateModalOta(release, targetAsset); };
       if (closeBtn) {
         closeBtn.onclick = function () {
-          persistDismissedUpdateTag(tag);
-          removeUpdateBanner();
+          persistDismissedUpdateTag(rawTag, targetAsset.version);
+          scheduleStaleUpdateSweeps();
         };
       }
     }
 
     function applyReleaseDataOta(release, forceModal) {
-      if (!release || !release.tag_name) return;
       var platform = detectPlatformOta();
-      var effectiveRemoteVer = resolveEffectiveReleaseVersion(release, platform);
-      var localVer = getAuthoritativeAppVersion();
-      var bell = document.getElementById('update-bell');
-      if (!forceModal && compareSemver(effectiveRemoteVer, localVer) <= 0) {
-        removeUpdateBanner();
-        if (bell) bell.classList.add('hidden');
-        return;
+      if (!release || (!release.tag_name && !release.name)) {
+        scheduleStaleUpdateSweeps();
+        return Promise.resolve({ updateAvailable: false, platform: platform, reason: 'invalid-release' });
       }
-      cachedReleaseObj = release;
-      if (bell) {
-        bell.classList.remove('hidden');
-        bell.onclick = function (e) {
-          e.preventDefault();
-          e.stopPropagation();
-          openGitHubUpdateModalOta(cachedReleaseObj);
+      var targetAsset = getTargetReleaseAssetForPlatform(release, platform);
+      if (!targetAsset) {
+        // Regla de oro: sin asset descargable para la plataforma actual, jamás mostrar aviso
+        scheduleStaleUpdateSweeps();
+        return Promise.resolve({ updateAvailable: false, platform: platform, reason: 'missing-platform-asset' });
+      }
+      return resolveInstalledBinaryVersionAsync(platform).then(function (localVer) {
+        if (!forceModal && compareSemver(targetAsset.version, localVer) <= 0) {
+          scheduleStaleUpdateSweeps();
+          return {
+            updateAvailable: false,
+            platform: platform,
+            installedVersion: localVer,
+            remoteVersion: targetAsset.version,
+            reason: 'up-to-date'
+          };
+        }
+        var rawTag = String(release.tag_name || release.name || ('v' + targetAsset.version));
+        if (!forceModal && isUpdateTagDismissed(rawTag, targetAsset.version)) {
+          scheduleStaleUpdateSweeps();
+          return {
+            updateAvailable: false,
+            platform: platform,
+            installedVersion: localVer,
+            remoteVersion: targetAsset.version,
+            dismissed: true,
+            reason: 'dismissed'
+          };
+        }
+
+        cancelStaleUpdateSweeps();
+        window.__ctvAuthoritativeUpdateActive = true;
+        cachedReleaseObj = release;
+
+        var bell = document.getElementById('update-bell');
+        if (bell) {
+          bell.classList.remove('hidden');
+          bell.onclick = function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            openGitHubUpdateModalOta(cachedReleaseObj, targetAsset);
+          };
+        }
+        if (forceModal) {
+          openGitHubUpdateModalOta(release, targetAsset);
+        } else {
+          showNonIntrusiveUpdateBanner(release, targetAsset);
+        }
+        return {
+          updateAvailable: true,
+          platform: platform,
+          installedVersion: localVer,
+          remoteVersion: targetAsset.version
         };
-      }
-      if (forceModal) {
-        openGitHubUpdateModalOta(release);
-      } else {
-        showNonIntrusiveUpdateBanner(release);
-      }
+      });
     }
 
     function checkGitHubReleaseSmart(forceModal) {
+      window.__ctvOtaAutoCheckDone = true;
       if (!forceModal) {
         try {
           var rawCache = localStorage.getItem(GH_CACHE_KEY);
           if (rawCache) {
             var parsed = JSON.parse(rawCache);
             if (parsed && parsed.ts && (Date.now() - parsed.ts) < GH_CACHE_TTL_MS && parsed.data) {
-              applyReleaseDataOta(parsed.data, false);
-              return;
+              return applyReleaseDataOta(parsed.data, false);
             }
           }
         } catch (e) {}
       }
-      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return Promise.resolve({ updateAvailable: false, reason: 'offline' });
+      }
 
-      ctvFetchWithTimeout(GH_LATEST_URL, {
+      return ctvFetchWithTimeout(GH_LATEST_URL, {
         headers: { Accept: 'application/vnd.github+json' },
         cache: 'no-store'
       }, 5000)
         .then(function (r) { return r && r.ok ? r.json() : null; })
         .then(function (release) {
-          if (!release || !release.tag_name) return;
+          if (!release || (!release.tag_name && !release.name)) {
+            scheduleStaleUpdateSweeps();
+            return { updateAvailable: false, reason: 'empty-response' };
+          }
           try {
             localStorage.setItem(GH_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: release }));
           } catch (e) {}
-          applyReleaseDataOta(release, forceModal);
+          return applyReleaseDataOta(release, forceModal);
         })
-        .catch(function () {});
+        .catch(function () {
+          return { updateAvailable: false, reason: 'network-error' };
+        });
     }
 
     window.checkCTVGitHubUpdate = checkGitHubReleaseSmart;
+
+    if (!window.__ctvOtaStartupReleaseTimer) {
+      window.__ctvOtaStartupReleaseTimer = setTimeout(function () {
+        window.__ctvOtaStartupReleaseTimer = null;
+        if (!window.__ctvOtaAutoCheckDone && typeof window.checkCTVGitHubUpdate === 'function') {
+          window.checkCTVGitHubUpdate(false);
+        }
+      }, 3600);
+    }
   } catch (e) {}
 
   // 9. Si la vista actual quedó con "Error de red" por un parche OTA previo en caché, recargar automáticamente la sección activa
