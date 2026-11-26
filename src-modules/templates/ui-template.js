@@ -108,6 +108,10 @@
         '.ctv-srv-hd{background:rgba(59,130,246,0.2);color:#93C5FD;border:1px solid rgba(59,130,246,0.45)}',
         '.ctv-srv-sd{background:rgba(245,158,11,0.16);color:#FCD34D;border:1px solid rgba(245,158,11,0.38)}',
         '#ctv-update-banner{position:fixed;top:max(12px,var(--safe-top,env(safe-area-inset-top,0px)));left:50%;transform:translateX(-50%);bottom:auto;right:auto;z-index:100020;display:flex;align-items:center;gap:12px;padding:8px 14px;border-radius:999px;background:var(--ctv-surface);border:1px solid var(--ctv-border-strong);box-shadow:0 10px 28px rgba(0,0,0,0.55);color:var(--ctv-text);font-size:.88rem;max-width:min(520px,calc(100vw - 24px));transition:transform .22s ease,opacity .22s ease;will-change:transform,opacity}',
+        '.content{overflow-y:auto!important;overflow-x:hidden!important;-webkit-overflow-scrolling:touch!important;touch-action:pan-y!important;overscroll-behavior-y:contain}',
+        '.detail-scroll,#detail-body{flex:1 1 auto!important;min-height:0!important;overflow-y:auto!important;overflow-x:hidden!important;-webkit-overflow-scrolling:touch!important;touch-action:pan-y!important;overscroll-behavior-y:contain}',
+        '.carousel,.filter-bar,.season-strip,.season-tabs{overflow-y:hidden!important;touch-action:pan-x pan-y}',
+        '.player.hidden,.detail-full.hidden,.modal.hidden,.filter-modal.hidden,#rotate-warning.hidden,#ctv-player-wake-zone.hidden{display:none!important;pointer-events:none!important;visibility:hidden!important}',
         '.card,.pill,.btn,.agenda-card,.episode-btn{transition:transform .16s ease,opacity .16s ease}',
         '@media (max-width:720px){#player-imgmode .ctv-btn-lbl,#player-subs .ctv-btn-lbl,#player-fav .ctv-btn-lbl,#player-next-srv .ctv-btn-lbl{display:none!important}#player-bar .btn,.player-bar .btn{min-height:44px!important;padding:8px 11px!important}#player-imgmode,#player-subs,#player-fav,#player-next-srv{min-width:44px!important;min-height:44px!important;padding:8px!important}}',
         '@media (max-width:480px){#player-bar,.player-bar{left:max(6px,var(--safe-left,env(safe-area-inset-left,0px)))!important;right:max(6px,var(--safe-right,env(safe-area-inset-right,0px)))!important;gap:4px!important;padding:6px 8px!important}#player-quality .ctv-btn-lbl{display:none!important}#player-quality{min-width:44px!important;min-height:44px!important;padding:8px!important}}',
@@ -2730,6 +2734,15 @@
         wz.setAttribute('aria-hidden', 'true');
         modal.appendChild(wz);
       }
+      if (modal.classList.contains('hidden')) {
+        wz.classList.add('hidden');
+        wz.style.display = 'none';
+        wz.style.pointerEvents = 'none';
+      } else {
+        wz.classList.remove('hidden');
+        wz.style.display = 'block';
+        wz.style.pointerEvents = 'auto';
+      }
       if (!wz.__ctvWakeBound) {
         wz.__ctvWakeBound = true;
         var revealHandler = function () {
@@ -2811,6 +2824,11 @@
               var titleEl = document.getElementById('player-title');
               window.__ctvMonitorDirectPlayback(titleEl ? titleEl.textContent : '');
             }
+          } else if (!nowOpen && prevOpen) {
+            ensurePlayerWakeZone();
+            if (!window.__ctvClosingGuard && typeof window.ctvRestoreScrollAndInput === 'function') {
+              window.ctvRestoreScrollAndInput({ exitFullscreen: true });
+            }
           }
           prevOpen = nowOpen;
         });
@@ -2855,6 +2873,13 @@
 
   function restoreFocusAfterPlayerClose() {
     try {
+      if (window.__ctvRestoreFocusTimer) {
+        clearTimeout(window.__ctvRestoreFocusTimer);
+        window.__ctvRestoreFocusTimer = null;
+      }
+      if (window.__ctvLastInputWasTouch === true) {
+        return;
+      }
       var focusTarget = null;
       var lastBtn = window.__ctvLastServerBtn;
       if (isElementVisibleForFocus(lastBtn)) {
@@ -2872,8 +2897,10 @@
       }
       if (focusTarget && typeof focusTarget.focus === 'function') {
         try { focusTarget.focus({ preventScroll: true }); } catch (e) { try { focusTarget.focus(); } catch (x) {} }
-        setTimeout(function () {
+        window.__ctvRestoreFocusTimer = setTimeout(function () {
+          window.__ctvRestoreFocusTimer = null;
           try {
+            if (window.__ctvLastInputWasTouch === true) return;
             if (isElementVisibleForFocus(focusTarget) && (!document.activeElement || document.activeElement === document.body)) {
               focusTarget.focus({ preventScroll: true });
             }
@@ -2998,112 +3025,21 @@
         }
       } catch (e) {}
       restoreFocusAfterPlayerClose();
+      if (typeof window.ctvRestoreScrollAndInput === 'function') {
+        window.ctvRestoreScrollAndInput({ exitFullscreen: true });
+      }
       if (typeof window.__ctvFlushPendingOta === 'function') {
         setTimeout(window.__ctvFlushPendingOta, 120);
       }
     }
   };
 
-  window.ctvHandleBackAction = function (opts) {
-    var subModal = document.getElementById('ctv-quality-modal') || document.getElementById('ctv-imgmode-modal') || document.getElementById('ctv-subs-modal');
-    if (subModal) {
-      var retId = subModal.id === 'ctv-quality-modal'
-        ? 'player-quality'
-        : (subModal.id === 'ctv-imgmode-modal' ? 'player-imgmode' : 'player-subs');
-      try { subModal.remove(); } catch (e) {}
-      var retBtn = document.getElementById(retId);
-      if (retBtn && !retBtn.classList.contains('hidden') && typeof retBtn.focus === 'function') {
-        try { retBtn.focus({ preventScroll: true }); } catch (e) { try { retBtn.focus(); } catch (x) {} }
-      }
-      return true;
-    }
-
-    var pModal = document.getElementById('player-modal');
-    if (pModal && !pModal.classList.contains('hidden')) {
-      try {
-        var fsEl = document.fullscreenElement || document.webkitFullscreenElement;
-        if (fsEl && (fsEl === pModal || pModal.contains(fsEl))) {
-          if (document.exitFullscreen) document.exitFullscreen().catch(function () {});
-          else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-        }
-      } catch (e) {}
-      if (typeof window.ctvForceClosePlayer === 'function') {
-        window.ctvForceClosePlayer();
-      }
-      return true;
-    }
-
-    var updModal = document.getElementById('update-modal');
-    if (updModal && !updModal.classList.contains('hidden')) {
-      var laterBtn = document.getElementById('btn-update-later');
-      if (laterBtn && laterBtn.style.display !== 'none' && typeof laterBtn.click === 'function') {
-        laterBtn.click();
-      } else {
-        updModal.classList.add('hidden');
-      }
-      return true;
-    }
-
-    var srvModal = document.getElementById('server-modal');
-    if (srvModal && !srvModal.classList.contains('hidden')) {
-      var srvClose = document.getElementById('server-close');
-      if (srvClose && typeof srvClose.click === 'function') {
-        srvClose.click();
-      }
-      srvModal.classList.add('hidden');
-      return true;
-    }
-
-    var isFs = Boolean(
-      document.fullscreenElement ||
-      document.webkitFullscreenElement ||
-      window.__ctvIsFullscreen ||
-      (opts && opts.isFullscreen)
-    );
-    if (isFs) {
-      if (typeof window.ctvExitFullscreen === 'function') {
-        window.ctvExitFullscreen();
-      }
-      return true;
-    }
-
-    return false;
-  };
+  /* @CTV_MODULE:scroll-guard */
 
   function installLateSafeWrapper(propName, makeWrapper, origStoreKey) {
-    try {
-      var cur = window[propName];
-      if (typeof cur === 'function') {
-        var baseFn = cur[origStoreKey] || cur;
-        var wrapped = makeWrapper(baseFn);
-        wrapped.__ctvWrapperTag = true;
-        wrapped[origStoreKey] = baseFn;
-        window[propName] = wrapped;
-        return;
-      }
-      var desc = Object.getOwnPropertyDescriptor(window, propName);
-      if (!desc || desc.configurable !== false) {
-        Object.defineProperty(window, propName, {
-          configurable: true,
-          enumerable: true,
-          get: function () { return undefined; },
-          set: function (fn) {
-            var base = (typeof fn === 'function' && fn[origStoreKey]) ? fn[origStoreKey] : fn;
-            var wrappedVal = typeof base === 'function' ? makeWrapper(base) : fn;
-            if (typeof wrappedVal === 'function') {
-              wrappedVal.__ctvWrapperTag = true;
-              wrappedVal[origStoreKey] = base;
-            }
-            Object.defineProperty(window, propName, {
-              value: wrappedVal,
-              writable: true,
-              enumerable: true,
-              configurable: true
-            });
-          }
-        });
-      }
-    } catch (e) {}
+    if (typeof window.ctvInstallLateSafeWrapper === 'function') {
+      return window.ctvInstallLateSafeWrapper(propName, makeWrapper, origStoreKey);
+    }
   }
 
   function ctvOpenModalSafe(title) {
@@ -3122,6 +3058,7 @@
       if (pv) pv.classList.add('hidden');
       if (modal) modal.classList.remove('hidden');
     }
+    ensurePlayerWakeZone();
     if (typeof window.ctvRevealPlayerBar === 'function') {
       window.ctvRevealPlayerBar();
     }
@@ -3130,12 +3067,16 @@
 
   function bindGlobalExitHooks() {
     ensurePlayerWakeZone();
+    if (typeof window.__ctvInitScrollGuard === 'function') {
+      window.__ctvInitScrollGuard(window, document);
+    }
 
     installLateSafeWrapper('__ctvOpenModal', function (origOpenModal) {
       return function () {
         ensurePlayerWakeZone();
         pushPlayerHistoryState();
         var ret = typeof origOpenModal === 'function' ? origOpenModal.apply(this, arguments) : undefined;
+        ensurePlayerWakeZone();
         if (typeof window.ctvRevealPlayerBar === 'function') {
           window.ctvRevealPlayerBar();
         }
@@ -3192,18 +3133,6 @@
       } catch (e) {}
     };
     document.addEventListener('click', window.__ctvLastCardClickCapture, true);
-
-    installLateSafeWrapper('handleAndroidBackPressed', function (origAndroidBack) {
-      return function () {
-        if (typeof window.ctvHandleBackAction === 'function' && window.ctvHandleBackAction()) {
-          return true;
-        }
-        if (typeof origAndroidBack === 'function') {
-          return origAndroidBack.apply(this, arguments);
-        }
-        return false;
-      };
-    }, '__ctvOrigHandleAndroidBackPressed');
 
     if (window.__ctvPlayerBackCaptureHandler) {
       document.removeEventListener('click', window.__ctvPlayerBackCaptureHandler, true);
@@ -3304,22 +3233,6 @@
       }
     }
 
-    if (window.__ctvPopstateHandler) {
-      window.removeEventListener('popstate', window.__ctvPopstateHandler);
-    }
-    window.__ctvPopstateHandler = function (ev) {
-      var pModal = document.getElementById('player-modal');
-      if (pModal && !pModal.classList.contains('hidden')) {
-        if (ev && typeof ev.stopImmediatePropagation === 'function') {
-          ev.stopImmediatePropagation();
-        }
-        if (typeof window.ctvForceClosePlayer === 'function') {
-          window.ctvForceClosePlayer();
-        }
-      }
-    };
-    window.addEventListener('popstate', window.__ctvPopstateHandler);
-
     window.__ctvCapBackDelegate = function () {
       if (typeof window.ctvHandleBackAction === 'function') {
         return window.ctvHandleBackAction();
@@ -3381,6 +3294,9 @@
       if (typeof window.__ctvFlushPendingOta === 'function') {
         setTimeout(window.__ctvFlushPendingOta, 120);
       }
+    }
+    if (typeof window.ctvRestoreScrollAndInput === 'function') {
+      window.ctvRestoreScrollAndInput({ exitFullscreen: true });
     }
   };
 
@@ -4560,6 +4476,15 @@
       if (!playerOpen) {
         var srvModal = document.getElementById('server-modal');
         if (srvModal && !srvModal.classList.contains('hidden') && isBackKey && !isTypingTarget) {
+          markLocalBackHandled();
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          if (typeof window.ctvHandleBackAction === 'function') window.ctvHandleBackAction();
+          return;
+        }
+        var fltOrAdult = document.getElementById('filter-modal') || document.getElementById('adult-modal');
+        if (fltOrAdult && isBackKey && !isTypingTarget) {
           markLocalBackHandled();
           e.preventDefault();
           e.stopPropagation();

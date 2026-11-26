@@ -10,7 +10,7 @@ const SRC_DIR = path.join(ROOT_DIR, 'src');
 const MODULES_DIR = path.join(ROOT_DIR, 'src-modules');
 const TEMPLATES_DIR = path.join(MODULES_DIR, 'templates');
 
-const OTA_REV = 22;
+const OTA_REV = 23;
 
 function resolveAppVersion() {
   try {
@@ -29,6 +29,7 @@ const MODULE_NAMES = [
   'icons',
   'scoring',
   'stealth',
+  'scroll-guard',
   'quality-failover',
   'updater'
 ];
