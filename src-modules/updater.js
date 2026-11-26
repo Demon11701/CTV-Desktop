@@ -85,7 +85,7 @@
         if (cleanDbVer && dbVer !== elVer) return cleanDbVer;
       }
       var deskFallback = extractCleanSemver(win.__ctvRuntimeAppVersion || win.CTV_APP_VERSION || '');
-      return deskFallback || '1.6.2';
+      return deskFallback || '1.6.3';
     }
     if (plat === 'android') {
       var explicitApkVer = extractCleanSemver(win.CTV_ANDROID_APK_VERSION || '');
@@ -113,7 +113,7 @@
       var bundleIos = extractCleanSemver(win.CTV_APP_VERSION || '');
       return bundleIos || '1.6.0';
     }
-    return extractCleanSemver(win.CTV_APP_VERSION || '') || '1.6.2';
+    return extractCleanSemver(win.CTV_APP_VERSION || '') || '1.6.3';
   }
 
   function getTargetReleaseAssetForPlatform(release, platform, winRef, navRef) {

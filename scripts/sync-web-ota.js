@@ -10,7 +10,7 @@ const SRC_DIR = path.join(ROOT_DIR, 'src');
 const MODULES_DIR = path.join(ROOT_DIR, 'src-modules');
 const TEMPLATES_DIR = path.join(MODULES_DIR, 'templates');
 
-const OTA_REV = 21;
+const OTA_REV = 22;
 
 function resolveAppVersion() {
   try {
@@ -19,7 +19,7 @@ function resolveAppVersion() {
       return pkg.version.trim();
     }
   } catch {}
-  return '1.6.2';
+  return '1.6.3';
 }
 
 const APP_VERSION = resolveAppVersion();

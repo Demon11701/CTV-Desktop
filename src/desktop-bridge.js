@@ -8,7 +8,7 @@
   window.__ctvDesktopBridgeInit = true;
   window.CTV_APP_VERSION =
     (window.DesktopBridge && typeof window.DesktopBridge.appVersion === 'string' && window.DesktopBridge.appVersion) ||
-    '1.6.2';
+    '1.6.3';
 
   window.__ctvIsFullscreen = false;
   document.addEventListener('fullscreenchange', function () {

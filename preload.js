@@ -25,7 +25,7 @@ function resolveAppVersionFromArgs() {
       if (val && val !== eVer) return val;
     }
   } catch {}
-  return '1.6.2';
+  return '1.6.3';
 }
 
 const APP_VERSION = resolveAppVersionFromArgs();
