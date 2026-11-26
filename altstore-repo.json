@@ -19,16 +19,25 @@
       "iconURL": "https://raw.githubusercontent.com/Demon11701/CTV-Desktop/main/build/icons/icon.png",
       "tintColor": "#a24df0",
       "category": "entertainment",
-      "version": "1.6.2",
-      "versionDate": "2026-11-24T06:15:47Z",
+      "version": "1.6.3",
+      "versionDate": "2026-11-26T16:58:21Z",
       "versionDescription": "CTV v1.6.2: Interfaz simplificada con 17 iconos vectoriales SVG, persistencia automatica de continuar viendo, controles de salida infalibles, failover unificado y estabilidad grafica optimizada bajo Linux Wayland.",
-      "downloadURL": "https://github.com/Demon11701/CTV-Desktop/releases/download/v1.6.2/CTV-1.6.2-ios.ipa",
-      "size": 1710414,
+      "downloadURL": "https://github.com/Demon11701/CTV-Desktop/releases/download/v1.6.3/CTV-1.6.3-ios.ipa",
+      "size": 1752892,
       "appPermissions": {
         "entitlements": [],
         "privacy": {}
       },
       "versions": [
+        {
+          "version": "1.6.3",
+          "buildVersion": "1.6.3",
+          "date": "2026-11-26T16:58:21Z",
+          "localizedDescription": "CTV v1.6.3 para iOS (SideStore / AltStore).",
+          "downloadURL": "https://github.com/Demon11701/CTV-Desktop/releases/download/v1.6.3/CTV-1.6.3-ios.ipa",
+          "size": 1752892,
+          "minOSVersion": "15.0"
+        },
         {
           "version": "1.6.2",
           "buildVersion": "1.6.2",
