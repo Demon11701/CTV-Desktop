@@ -15,7 +15,7 @@
       "bundleIdentifier": "com.pelisjuanita.app",
       "developerName": "CTV",
       "subtitle": "TV en vivo, Películas, Series, Anime y Agenda Deportiva",
-      "localizedDescription": "Aplicación nativa de CTV para iOS con soporte de TV en vivo, películas, series, sección dedicada de Anime, doramas coreanos, reproductor directo sin anuncios y bloqueador de publicidad.",
+      "localizedDescription": "CTV v1.6.3 (ota.22) para iOS: priorización inteligente de servidores HD-First, Auto-Failover por calidad, escudo anti-anuncios sigiloso, reparación integral de Deportes (HLS/DASH) y arquitectura modular.",
       "iconURL": "https://raw.githubusercontent.com/Demon11701/CTV-Desktop/main/build/icons/icon.png",
       "tintColor": "#a24df0",
       "category": "entertainment",
