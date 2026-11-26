@@ -8,7 +8,7 @@
   window.__ctvDesktopBridgeInit = true;
   window.CTV_APP_VERSION =
     (window.DesktopBridge && typeof window.DesktopBridge.appVersion === 'string' && window.DesktopBridge.appVersion) ||
-    '1.6.2';
+    '1.6.3';
 
   window.__ctvIsFullscreen = false;
   document.addEventListener('fullscreenchange', function () {
@@ -70,9 +70,11 @@
   var WATCHED_KEY = 'pj2_vistos';
   var PREFS_KEY = 'ctv_user_prefs_v1';
   var WATCH_PROGRESS_KEY = 'ctv_watch_progress_v1';
+  var SERVER_SCORES_KEY = 'ctv_server_scores_v1';
   var DISMISSED_UPD_KEY = 'ctv_dismissed_update_v1';
   var STATE_TS_KEY = 'ctv_state_updated_at';
   window.__ctvSupportsWatchProgressState = true;
+  window.__ctvSupportsServerScoresState = true;
 
   var isNativeAndroid = Boolean(window.AndroidBridge && typeof window.AndroidBridge.playChannelFull === 'function');
   var isCapNative = Boolean(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()) || isNativeAndroid;
@@ -122,6 +124,53 @@
     return out;
   }
 
+  function pruneServerScoresLru(rawMap) {
+    if (!rawMap || typeof rawMap !== 'object' || Array.isArray(rawMap)) return {};
+    var clampInt = function (n, maxVal) {
+      var v = Math.floor(Number(n) || 0);
+      return isFinite(v) ? Math.max(0, Math.min(maxVal, v)) : 0;
+    };
+    var entries = [];
+    Object.keys(rawMap).forEach(function (rawKey) {
+      var key = typeof rawKey === 'string' ? rawKey.trim().toLowerCase() : '';
+      if (
+        !key ||
+        key.length > 180 ||
+        key === '__proto__' ||
+        key === 'constructor' ||
+        key === 'prototype' ||
+        key === '127.0.0.1' ||
+        key === 'localhost' ||
+        key === 'about:blank'
+      ) {
+        return;
+      }
+      var val = rawMap[rawKey];
+      if (!val || typeof val !== 'object' || Array.isArray(val)) return;
+      var upd = Number(val.updatedAt);
+      if (!isFinite(upd) || upd <= 0) return;
+      entries.push([
+        key,
+        {
+          ok: clampInt(val.ok, 100000),
+          fail: clampInt(val.fail, 100000),
+          timeouts: clampInt(val.timeouts, 100000),
+          redirects: clampInt(val.redirects, 100000),
+          avgMs: clampInt(val.avgMs, 600000),
+          maxH: clampInt(val.maxH, 8640),
+          consecFail: clampInt(val.consecFail, 1000),
+          updatedAt: upd
+        }
+      ]);
+    });
+    entries.sort(function (a, b) { return b[1].updatedAt - a[1].updatedAt; });
+    var out = {};
+    for (var i = 0; i < entries.length && i < 80; i++) {
+      out[entries[i][0]] = entries[i][1];
+    }
+    return out;
+  }
+
   function mergeBySlug(localArr, diskArr) {
     var map = new Map();
     (Array.isArray(diskArr) ? diskArr : []).forEach(function (it) {
@@ -152,6 +201,11 @@
         (patch && patch.watchProgress && typeof patch.watchProgress === 'object')
           ? patch.watchProgress
           : safeReadJson(WATCH_PROGRESS_KEY, {})
+      ),
+      serverScores: pruneServerScoresLru(
+        (patch && patch.serverScores && typeof patch.serverScores === 'object')
+          ? patch.serverScores
+          : safeReadJson(SERVER_SCORES_KEY, {})
       ),
       dismissedUpdateTag:
         typeof patch.dismissedUpdateTag === 'string'
@@ -227,6 +281,26 @@
         }
       }
 
+      if (diskState.serverScores && typeof diskState.serverScores === 'object' && !Array.isArray(diskState.serverScores)) {
+        var curScores = safeReadJson(SERVER_SCORES_KEY, {});
+        var cleanDiskScores = pruneServerScoresLru(diskState.serverScores);
+        var cleanCurScores = pruneServerScoresLru(curScores);
+        var mergedScores = {};
+        Object.keys(cleanDiskScores).forEach(function (k) {
+          mergedScores[k] = cleanDiskScores[k];
+        });
+        Object.keys(cleanCurScores).forEach(function (k) {
+          if (!mergedScores[k] || (cleanCurScores[k].updatedAt || 0) >= (mergedScores[k].updatedAt || 0)) {
+            mergedScores[k] = cleanCurScores[k];
+          }
+        });
+        var nextScores = pruneServerScoresLru(mergedScores);
+        if (JSON.stringify(nextScores) !== JSON.stringify(curScores)) {
+          localStorage.setItem(SERVER_SCORES_KEY, JSON.stringify(nextScores));
+          changed = true;
+        }
+      }
+
       if (diskState.dismissedUpdateTag) {
         localStorage.setItem(DISMISSED_UPD_KEY, String(diskState.dismissedUpdateTag));
       }
@@ -291,6 +365,7 @@
           if (didChange) {
             if (typeof window.ctvInvalidateFavCache === 'function') window.ctvInvalidateFavCache();
             if (typeof window.ctvInvalidateWatchProgressCache === 'function') window.ctvInvalidateWatchProgressCache();
+            if (typeof window.ctvInvalidateServerScoresCache === 'function') window.ctvInvalidateServerScoresCache();
             if (typeof window.ctvUpdateFavButtonsUI === 'function') window.ctvUpdateFavButtonsUI();
           }
           return didChange;
