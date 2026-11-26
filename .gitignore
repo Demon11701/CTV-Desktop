@@ -4,3 +4,5 @@ _apk_extracted/
 CTV.apk
 *.log
 .DS_Store
+
+.directory

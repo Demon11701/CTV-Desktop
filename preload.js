@@ -64,5 +64,13 @@ contextBridge.exposeInMainWorld('DesktopBridge', Object.freeze({
     const handler = (_ev, payload) => callback(payload || {});
     ipcRenderer.on('ctv:subframe-load-error', handler);
     return () => ipcRenderer.removeListener('ctv:subframe-load-error', handler);
+  },
+  setActiveEmbedHost: (host) => ipcRenderer.invoke('ctv:set-active-embed-host', String(host || '')),
+  bypassAdShieldForHost: (host) => ipcRenderer.invoke('ctv:ad-shield-bypass-host', String(host || '')),
+  onAdShieldEvent: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const handler = (_ev, payload) => callback(payload || {});
+    ipcRenderer.on('ctv:ad-shield-event', handler);
+    return () => ipcRenderer.removeListener('ctv:ad-shield-event', handler);
   }
 }));
